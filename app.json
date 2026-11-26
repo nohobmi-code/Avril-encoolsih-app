@@ -1,0 +1,42 @@
+{
+  "expo": {
+    "name": "Avril Encoolish",
+    "slug": "avril-encoolish",
+    "version": "1.0.0",
+    "orientation": "portrait",
+    "icon": "./assets/icon.png",
+    "scheme": "avrilencoolish",
+    "userInterfaceStyle": "light",
+    "backgroundColor": "#FAF7F2",
+    "splash": {
+      "image": "./assets/splash-icon.png",
+      "resizeMode": "contain",
+      "backgroundColor": "#FAF7F2"
+    },
+    "ios": {
+      "supportsTablet": true,
+      "bundleIdentifier": "com.avrilencoolish.app",
+      "infoPlist": {
+        "NSPhotoLibraryUsageDescription": "수업 영상을 골라 아이의 방에 올리기 위해 사진 보관함에 접근합니다.",
+        "NSCameraUsageDescription": "그날의 수업 영상을 촬영해 아이의 방에 올리기 위해 카메라를 사용합니다."
+      }
+    },
+    "android": {
+      "package": "com.avrilencoolish.app",
+      "permissions": ["CAMERA", "READ_MEDIA_VIDEO"],
+      "adaptiveIcon": {
+        "foregroundImage": "./assets/adaptive-icon.png",
+        "backgroundColor": "#FAF7F2"
+      },
+      "predictiveBackGestureEnabled": false
+    },
+    "web": {
+      "bundler": "metro",
+      "favicon": "./assets/favicon.png"
+    },
+    "experiments": {
+      "baseUrl": "/avril-encoolish-app"
+    },
+    "plugins": ["expo-font", "expo-video", "expo-image-picker"]
+  }
+}
