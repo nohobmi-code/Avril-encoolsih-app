@@ -20,7 +20,12 @@ function buildQuiz(deck: KidsWord[]): QuizItem[] {
     if (w && !pool.includes(w)) pool.push(w);
   });
 
-  return pool.slice(0, 3).map((answer, i) => {
+  // 세 단어면 모두, 그보다 많으면 날마다 세 개씩 돌려서 낸다. (한국 시간 기준)
+  const day = Math.floor((Date.now() + 9 * 60 * 60 * 1000) / 86400000);
+  const picks =
+    pool.length <= 3 ? pool : [0, 1, 2].map((i) => pool[(day + i) % pool.length]);
+
+  return picks.map((answer, i) => {
     const distractors: string[] = [];
     [...pool.filter((w) => w !== answer), ...FILLERS].forEach((c) => {
       if (distractors.length < 2 && c !== answer && !distractors.includes(c)) distractors.push(c);
