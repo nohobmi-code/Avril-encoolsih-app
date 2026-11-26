@@ -67,7 +67,10 @@ export default function ParentScreen({ onLogout }: { onLogout: () => void }) {
   const name = student?.name ?? '';
 
   const load = useCallback(async () => {
-    if (!student) return;
+    if (!student) {
+      setStage('error');
+      return;
+    }
     setStage('loading');
     try {
       const rows = await listLessons(student.id);
