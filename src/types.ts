@@ -46,6 +46,16 @@ export type Lesson = {
   created_at?: string;
 };
 
+/** Kids Play 단어장 — 선생님이 Teacher Studio에서 직접 고친다. */
+export type KidsWord = {
+  id: string;
+  word: string;
+  ko: string;
+  ipa: string | null;
+  sort_order: number;
+  created_at?: string;
+};
+
 export type Screen =
   | { name: 'entry' }
   | { name: 'kids' }

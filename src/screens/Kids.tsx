@@ -1,21 +1,39 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import { Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import * as Speech from 'expo-speech';
 import { C, F, S, body, eyebrow } from '../theme';
 import { Colophon, Header, Meta, Rule, Sparkle, TextLink } from '../components/ui';
 import { koreanDate, todayISO } from '../store';
+import { DEFAULT_KIDS_WORDS, loadKidsWords } from '../lib/api';
+import { KidsWord } from '../types';
 
-const DECK = [
-  { word: 'cat', ipa: '/kæt/', ko: '고양이' },
-  { word: 'hat', ipa: '/hæt/', ko: '모자' },
-  { word: 'map', ipa: '/mæp/', ko: '지도' },
-];
+type QuizItem = { say: string; options: string[]; answer: string };
 
-const QUIZ = [
-  { say: 'cat', options: ['cat', 'hat', 'map'], answer: 'cat' },
-  { say: 'hat', options: ['map', 'hat', 'cat'], answer: 'hat' },
-  { say: 'map', options: ['cat', 'map', 'bed'], answer: 'map' },
-];
+/** 단어가 3개 미만일 때 세 번째 보기를 채우는 여분 단어. */
+const FILLERS = ['bed', 'sun', 'cup', 'pig', 'fox', 'bus'];
+
+/** 단어장 → 듣기 퀴즈. 정답 하나에 보기 세 개, 정답 자리는 문항마다 돌린다. */
+function buildQuiz(deck: KidsWord[]): QuizItem[] {
+  const pool: string[] = [];
+  deck.forEach((d) => {
+    const w = (d.word ?? '').trim();
+    if (w && !pool.includes(w)) pool.push(w);
+  });
+
+  return pool.slice(0, 3).map((answer, i) => {
+    const distractors: string[] = [];
+    [...pool.filter((w) => w !== answer), ...FILLERS].forEach((c) => {
+      if (distractors.length < 2 && c !== answer && !distractors.includes(c)) distractors.push(c);
+    });
+    const options = [answer, ...distractors];
+    const shift = options.length ? i % options.length : 0;
+    return {
+      say: answer,
+      options: [...options.slice(shift), ...options.slice(0, shift)],
+      answer,
+    };
+  });
+}
 
 const say = (text: string) => {
   try {
@@ -27,25 +45,39 @@ const say = (text: string) => {
 };
 
 export default function KidsScreen({ onBack }: { onBack: () => void }) {
+  const [deck, setDeck] = useState<KidsWord[]>(DEFAULT_KIDS_WORDS);
   const [q, setQ] = useState(0);
   const [picked, setPicked] = useState<string | null>(null);
   const [stamps, setStamps] = useState(0);
   const [done, setDone] = useState(false);
 
-  const current = QUIZ[q];
+  const quiz = useMemo(() => buildQuiz(deck), [deck]);
+  const current = quiz[Math.min(q, quiz.length - 1)];
 
+  // 선생님이 저장한 단어를 불러온다. 서버가 없거나 실패하면 기본 3단어로 진행.
   useEffect(() => {
-    if (done) return;
-  }, [done]);
+    let alive = true;
+    loadKidsWords().then((rows) => {
+      if (!alive || rows === null) return;
+      setDeck(rows);
+      setQ(0);
+      setPicked(null);
+      setStamps(0);
+      setDone(false);
+    });
+    return () => {
+      alive = false;
+    };
+  }, []);
 
   const choose = (opt: string) => {
-    if (picked) return;
+    if (!current || picked) return;
     setPicked(opt);
     if (opt === current.answer) setStamps((n) => Math.min(3, n + 1));
   };
 
   const next = () => {
-    if (q + 1 >= QUIZ.length) {
+    if (q + 1 >= quiz.length) {
       setDone(true);
       return;
     }
@@ -60,6 +92,14 @@ export default function KidsScreen({ onBack }: { onBack: () => void }) {
     setDone(false);
   };
 
+  const koreanLine =
+    deck.length === 0
+      ? '선생님이 오늘의 단어를 준비하고 있어요.'
+      : `오늘의 단어 — ${deck
+          .slice(0, 3)
+          .map((d) => d.ko)
+          .join(' · ')}${deck.length > 3 ? ` 외 ${deck.length - 3}개` : ''}`;
+
   return (
     <View style={{ flex: 1, backgroundColor: C.paper }}>
       <Header folio="01 — KIDS" onBack={onBack} />
@@ -68,15 +108,15 @@ export default function KidsScreen({ onBack }: { onBack: () => void }) {
         showsVerticalScrollIndicator={false}
       >
         <View style={{ flexDirection: 'row', justifyContent: 'space-between' }}>
-          <Text style={[eyebrow, { color: C.clay }]}>TODAY'S SOUND</Text>
+          <Text style={[eyebrow, { color: C.clay }]}>TODAY'S WORDS</Text>
           <Meta style={{ color: C.ink40 }}>{koreanDate(todayISO())}</Meta>
         </View>
 
         <View style={{ flexDirection: 'row', alignItems: 'flex-end', marginTop: 8 }}>
-          <Text style={s.big}>Short a</Text>
-          <Text style={s.ipa}>/æ/</Text>
+          <Text style={s.big}>Today's words</Text>
+          <Text style={s.ipa}>{`${deck.length} ${deck.length === 1 ? 'card' : 'cards'}`}</Text>
         </View>
-        <Text style={s.kr}>짧은 ‘애’ 소리 — 고양이, 모자, 지도</Text>
+        <Text style={s.kr}>{koreanLine}</Text>
 
         {/* 01 단어 카드 */}
         <View style={{ marginTop: 16 }}>
@@ -85,37 +125,45 @@ export default function KidsScreen({ onBack }: { onBack: () => void }) {
             <Meta style={{ color: C.ink40 }}>TAP TO HEAR</Meta>
           </View>
           <Rule />
-          {DECK.map((d) => (
-            <View key={d.word}>
-              <Pressable
-                onPress={() => say(d.word)}
-                style={({ pressed }) => [s.card, { opacity: pressed ? 0.65 : 1 }]}
-              >
-                <View style={{ flex: 1 }}>
-                  <Text style={s.word}>{d.word}</Text>
-                  <View style={{ flexDirection: 'row', alignItems: 'baseline', marginTop: 2 }}>
-                    <Text style={s.wordIpa}>{d.ipa}</Text>
-                    <Text style={s.wordKo}>{d.ko}</Text>
+          {deck.length === 0 ? (
+            <Text style={s.emptyNote}>오늘은 준비된 단어가 없어요. 선생님이 단어를 채우면 바로 열립니다.</Text>
+          ) : (
+            deck.map((d) => (
+              <View key={d.id}>
+                <Pressable
+                  onPress={() => say(d.word)}
+                  style={({ pressed }) => [s.card, { opacity: pressed ? 0.65 : 1 }]}
+                >
+                  <View style={{ flex: 1 }}>
+                    <Text style={s.word}>{d.word}</Text>
+                    <View style={{ flexDirection: 'row', alignItems: 'baseline', marginTop: 2 }}>
+                      {d.ipa ? <Text style={s.wordIpa}>{d.ipa}</Text> : null}
+                      <Text style={s.wordKo}>{d.ko}</Text>
+                    </View>
                   </View>
-                </View>
-                <View style={s.speaker}>
-                  <View style={s.triangle} />
-                </View>
-              </Pressable>
-              <Rule />
-            </View>
-          ))}
+                  <View style={s.speaker}>
+                    <View style={s.triangle} />
+                  </View>
+                </Pressable>
+                <Rule />
+              </View>
+            ))
+          )}
         </View>
 
         {/* 02 미니 퀴즈 */}
         <View style={{ marginTop: 22 }}>
           <View style={{ flexDirection: 'row', justifyContent: 'space-between', marginBottom: 8 }}>
             <Text style={[eyebrow, { fontSize: 8.5, letterSpacing: 2 }]}>02 · MINI QUIZ</Text>
-            <Meta style={{ color: C.ink40 }}>{done ? 'FINISHED' : `${q + 1} / ${QUIZ.length}`}</Meta>
+            <Meta style={{ color: C.ink40 }}>
+              {quiz.length === 0 ? '—' : done ? 'FINISHED' : `${q + 1} / ${quiz.length}`}
+            </Meta>
           </View>
           <Rule />
 
-          {done ? (
+          {!current ? (
+            <Text style={s.emptyNote}>단어가 준비되면 세 문항짜리 듣기 퀴즈가 열립니다.</Text>
+          ) : done ? (
             <View style={{ paddingVertical: 22 }}>
               <View style={{ flexDirection: 'row', alignItems: 'center' }}>
                 <Sparkle size={8} color={C.clay} />
@@ -123,9 +171,9 @@ export default function KidsScreen({ onBack }: { onBack: () => void }) {
               </View>
               <Text style={s.doneTitle}>오늘의 스탬프 {stamps}개</Text>
               <Text style={s.doneBody}>
-                {stamps === 3
-                  ? '“a” 소리를 정확하게 들었어요. 내일은 문장으로 만나요.'
-                  : '세 번 더 들으면 소리가 더 또렷해져요. 다시 해볼까요?'}
+                {stamps === quiz.length
+                  ? '오늘의 단어를 정확하게 들었어요. 내일은 문장으로 만나요.'
+                  : '한 번 더 들으면 소리가 더 또렷해져요. 다시 해볼까요?'}
               </Text>
               <View style={{ flexDirection: 'row', marginTop: 16 }}>
                 <TextLink label="한 번 더 →" onPress={restart} color={C.clay} />
@@ -164,14 +212,14 @@ export default function KidsScreen({ onBack }: { onBack: () => void }) {
                 <View style={{ marginTop: 14 }}>
                   <Text style={s.feedback}>
                     {picked === current.answer
-                      ? '맞았어요. “a” 소리가 정확했어요.'
+                      ? '맞았어요. 소리가 정확했어요.'
                       : '조금 다르게 들렸어요. 한 번 더 들어볼까요?'}
                   </Text>
                   <View style={{ flexDirection: 'row', marginTop: 10 }}>
                     <TextLink label="다시 듣기" onPress={() => say(current.say)} color={C.ink40} />
                     <View style={{ width: 18 }} />
                     <TextLink
-                      label={q + 1 >= QUIZ.length ? '결과 보기 →' : '다음 문제 →'}
+                      label={q + 1 >= quiz.length ? '결과 보기 →' : '다음 문제 →'}
                       onPress={next}
                       color={C.clay}
                     />
@@ -200,7 +248,9 @@ export default function KidsScreen({ onBack }: { onBack: () => void }) {
               />
             ))}
             <Text style={s.stampNote}>
-              {stamps === 0 ? '세 문항을 모두 맞히면 스탬프가 쌓여요.' : '스탬프가 쌓이고 있어요.'}
+              {stamps === 0
+                ? '퀴즈를 모두 맞히면 스탬프가 쌓여요.'
+                : '스탬프가 쌓이고 있어요.'}
             </Text>
           </View>
         </View>
@@ -214,14 +264,14 @@ export default function KidsScreen({ onBack }: { onBack: () => void }) {
 const s = StyleSheet.create({
   big: {
     fontFamily: F.serif,
-    fontSize: 42,
-    lineHeight: 46,
+    fontSize: 38,
+    lineHeight: 44,
     color: C.ink,
     letterSpacing: -1.2,
   },
   ipa: {
     fontFamily: F.mono,
-    fontSize: 15,
+    fontSize: 12,
     color: C.clay,
     marginLeft: 10,
     marginBottom: 6,
@@ -231,6 +281,13 @@ const s = StyleSheet.create({
     fontSize: 12,
     color: C.ink55,
     marginTop: 6,
+  },
+  emptyNote: {
+    fontFamily: F.krSans,
+    fontSize: 12,
+    lineHeight: 20,
+    color: C.ink40,
+    paddingVertical: 18,
   },
   card: {
     paddingVertical: 12,

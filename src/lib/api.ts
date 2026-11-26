@@ -1,5 +1,5 @@
 import { createSignupClient, emailFor, supabase } from './supabase';
-import { Lesson, Profile, SignupRequest, Student } from '../types';
+import { Lesson, KidsWord, Profile, SignupRequest, Student } from '../types';
 
 export const BUCKET = 'lesson-videos';
 export const USERNAME_RE = /^[a-z0-9][a-z0-9._-]{2,23}$/;
@@ -385,6 +385,92 @@ export async function uploadVideoNative(
   const { error } = await supabase.storage.from(BUCKET).upload(path, form as any, { upsert: false });
   if (error) fail('영상을 올리지 못했습니다. 잠시 뒤 다시 시도해 주세요.');
   return path;
+}
+
+/* ───────── Kids Play 단어장 ───────── */
+
+/** 서버를 못 읽을 때(로그인 전 오프라인 등) 아이 화면이 쓰는 기본 3단어. */
+export const DEFAULT_KIDS_WORDS: KidsWord[] = [
+  { id: 'default-cat', word: 'cat', ko: '고양이', ipa: '/kæt/', sort_order: 1 },
+  { id: 'default-hat', word: 'hat', ko: '모자', ipa: '/hæt/', sort_order: 2 },
+  { id: 'default-map', word: 'map', ko: '지도', ipa: '/mæp/', sort_order: 3 },
+];
+
+/**
+ * 아이 화면(Kids)용 — 로그인 전에도 읽을 수 있다.
+ * 서버가 없거나 조회가 실패하면 null. (화면은 기본 단어로 넘어간다)
+ */
+export async function loadKidsWords(): Promise<KidsWord[] | null> {
+  try {
+    const { data, error } = await supabase
+      .from('kids_words')
+      .select('*')
+      .order('sort_order', { ascending: true })
+      .order('created_at', { ascending: true });
+    if (error) return null;
+    return (data ?? []) as KidsWord[];
+  } catch {
+    return null;
+  }
+}
+
+/** 선생님용 — 편집할 단어 목록. 실패는 화면에 보여 줄 메시지로 알린다. */
+export async function listKidsWords(): Promise<KidsWord[]> {
+  const { data, error } = await supabase
+    .from('kids_words')
+    .select('*')
+    .order('sort_order', { ascending: true })
+    .order('created_at', { ascending: true });
+  if (error) fail('단어 목록을 불러오지 못했습니다.');
+  return (data ?? []) as KidsWord[];
+}
+
+export type KidsWordInput = { word: string; ko: string; ipa: string };
+
+const checkKidsWord = (input: KidsWordInput) => {
+  const word = input.word.trim();
+  const ko = input.ko.trim();
+  const ipa = input.ipa.trim();
+  if (!word) fail('영어 단어를 적어 주세요.');
+  if (word.length > 40) fail('영어 단어는 40자 안으로 적어 주세요.');
+  if (!ko) fail('뜻을 적어 주세요.');
+  if (ko.length > 60) fail('뜻은 60자 안으로 적어 주세요.');
+  if (ipa.length > 40) fail('발음기호는 40자 안으로 적어 주세요.');
+  return { word, ko, ipa };
+};
+
+export async function createKidsWord(input: KidsWordInput): Promise<KidsWord> {
+  const v = checkKidsWord(input);
+  const { data: last } = await supabase
+    .from('kids_words')
+    .select('sort_order')
+    .order('sort_order', { ascending: false })
+    .limit(1);
+  const nextOrder = ((last?.[0]?.sort_order as number | undefined) ?? 0) + 1;
+  const { data, error } = await supabase
+    .from('kids_words')
+    .insert({ word: v.word, ko: v.ko, ipa: v.ipa, sort_order: nextOrder })
+    .select()
+    .single();
+  if (error) fail('단어를 저장하지 못했습니다.');
+  return data as KidsWord;
+}
+
+export async function updateKidsWord(id: string, input: KidsWordInput): Promise<KidsWord> {
+  const v = checkKidsWord(input);
+  const { data, error } = await supabase
+    .from('kids_words')
+    .update({ word: v.word, ko: v.ko, ipa: v.ipa })
+    .eq('id', id)
+    .select()
+    .single();
+  if (error) fail('단어를 수정하지 못했습니다.');
+  return data as KidsWord;
+}
+
+export async function deleteKidsWord(id: string) {
+  const { error } = await supabase.from('kids_words').delete().eq('id', id);
+  if (error) fail('단어를 삭제하지 못했습니다.');
 }
 
 /** 비공개 버킷의 영상은 서명 URL로만 열린다. (4시간) */

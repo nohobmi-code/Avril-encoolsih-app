@@ -4,18 +4,24 @@ import { C, F, S, body, eyebrow } from '../theme';
 import { Colophon, Field, Header, Meta, PrimaryButton, Rule, Sparkle, TextLink } from '../components/ui';
 import {
   ApiError,
+  KidsWordInput,
   StudentRow,
   approveSignup,
   changePassword,
+  createKidsWord,
   createStudent,
+  deleteKidsWord,
+  listKidsWords,
   listSignupRequests,
   listStudents,
   rejectSignup,
+  updateKidsWord,
 } from '../lib/api';
 import { shortDate, useStore } from '../store';
-import { SignupRequest } from '../types';
+import { KidsWord, SignupRequest } from '../types';
 
 const EMPTY = { name: '', ageLabel: '', username: '', password: '' };
+const EMPTY_WORD: KidsWordInput = { word: '', ko: '', ipa: '' };
 
 export default function TeacherScreen({
   onBack,
@@ -46,6 +52,18 @@ export default function TeacherScreen({
   const [pw2, setPw2] = useState('');
   const [pwMsg, setPwMsg] = useState('');
   const [pwBusy, setPwBusy] = useState(false);
+
+  // Kids Play 단어장
+  const [words, setWords] = useState<KidsWord[]>([]);
+  const [wordsBusy, setWordsBusy] = useState(true);
+  const [wordsError, setWordsError] = useState('');
+  const [wordMsg, setWordMsg] = useState('');
+  const [wordAddOpen, setWordAddOpen] = useState(false);
+  const [newWord, setNewWord] = useState<KidsWordInput>(EMPTY_WORD);
+  const [wordSaving, setWordSaving] = useState(false);
+  const [editWordId, setEditWordId] = useState<string | null>(null);
+  const [editWord, setEditWord] = useState<KidsWordInput>(EMPTY_WORD);
+  const [confirmWordDelete, setConfirmWordDelete] = useState<string | null>(null);
 
   const load = useCallback(async () => {
     setBusy(true);
@@ -102,6 +120,85 @@ export default function TeacherScreen({
   useEffect(() => {
     void load();
   }, [load]);
+
+  const loadWords = useCallback(async () => {
+    setWordsBusy(true);
+    setWordsError('');
+    try {
+      setWords(await listKidsWords());
+    } catch (e) {
+      setWordsError(e instanceof ApiError ? e.message : '단어 목록을 불러오지 못했습니다.');
+    } finally {
+      setWordsBusy(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    void loadWords();
+  }, [loadWords]);
+
+  const addWord = async () => {
+    if (wordSaving) return;
+    setWordMsg('');
+    setWordSaving(true);
+    try {
+      const created = await createKidsWord(newWord);
+      setWords((prev) => [...prev, created]);
+      setNewWord(EMPTY_WORD);
+      setWordAddOpen(false);
+      setConfirmWordDelete(null);
+      setWordMsg(`「${created.word}」 카드를 추가했습니다. 아이 모드에 바로 나옵니다.`);
+    } catch (e) {
+      setWordMsg(e instanceof ApiError ? e.message : '단어를 저장하지 못했습니다.');
+    } finally {
+      setWordSaving(false);
+    }
+  };
+
+  const openWordEdit = (w: KidsWord) => {
+    setEditWordId(w.id);
+    setEditWord({ word: w.word, ko: w.ko, ipa: w.ipa ?? '' });
+    setConfirmWordDelete(null);
+    setWordMsg('');
+  };
+
+  const saveWord = async () => {
+    if (!editWordId || wordSaving) return;
+    setWordMsg('');
+    setWordSaving(true);
+    try {
+      const updated = await updateKidsWord(editWordId, editWord);
+      setWords((prev) => prev.map((x) => (x.id === updated.id ? updated : x)));
+      setEditWordId(null);
+      setWordMsg(`「${updated.word}」 카드를 고쳤습니다.`);
+    } catch (e) {
+      setWordMsg(e instanceof ApiError ? e.message : '단어를 수정하지 못했습니다.');
+    } finally {
+      setWordSaving(false);
+    }
+  };
+
+  const removeWord = async (w: KidsWord) => {
+    if (wordSaving) return;
+    if (confirmWordDelete !== w.id) {
+      setConfirmWordDelete(w.id);
+      setEditWordId(null);
+      setWordMsg('한 번 더 누르면 목록에서 지웁니다. 아이 모드에서도 사라집니다.');
+      return;
+    }
+    setWordSaving(true);
+    setWordMsg('');
+    try {
+      await deleteKidsWord(w.id);
+      setWords((prev) => prev.filter((x) => x.id !== w.id));
+      setWordMsg(`「${w.word}」 카드를 지웠습니다.`);
+    } catch (e) {
+      setWordMsg(e instanceof ApiError ? e.message : '단어를 삭제하지 못했습니다.');
+    } finally {
+      setWordSaving(false);
+      setConfirmWordDelete(null);
+    }
+  };
 
   const submitStudent = async () => {
     if (saving) return;
@@ -330,6 +427,158 @@ export default function TeacherScreen({
           방은 아이마다 따로 있습니다. 한 아이의 영상과 노트는 다른 아이의 계정으로 옮겨지지 않습니다.
         </Text>
 
+        {/* Kids Play 단어장 */}
+        <View style={{ marginTop: 34 }}>
+          <View style={{ flexDirection: 'row', justifyContent: 'space-between', marginBottom: 8 }}>
+            <Text style={[eyebrow, { fontSize: 8.5, letterSpacing: 2, color: C.clay }]}>KIDS PLAY WORDS</Text>
+            <Meta style={{ color: C.ink40 }}>
+              {wordsBusy ? '—' : `${words.length} ${words.length === 1 ? 'CARD' : 'CARDS'}`}
+            </Meta>
+          </View>
+          <Rule />
+          <Text style={s.wordsLead}>
+            아이 모드(로그인 없이 여는 화면)의 단어 카드와 듣기 퀴즈가 이 목록으로 만들어집니다.
+          </Text>
+
+          {wordsBusy ? (
+            <Text style={s.quiet}>불러오는 중…</Text>
+          ) : wordsError ? (
+            <View style={{ paddingVertical: 14 }}>
+              <Text style={s.error}>{wordsError}</Text>
+              <TextLink label="다시 시도" onPress={() => void loadWords()} color={C.clay} />
+            </View>
+          ) : words.length === 0 ? (
+            <Text style={s.quiet}>아직 단어가 없습니다. 아래에서 첫 단어를 추가해 주세요.</Text>
+          ) : (
+            words.map((w) => (
+              <View key={w.id}>
+                {editWordId === w.id ? (
+                  <View style={s.wordForm}>
+                    <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 6 }}>
+                      <Text style={[eyebrow, { fontSize: 8.5, letterSpacing: 2 }]}>EDIT WORD</Text>
+                      <TextLink label="닫기" onPress={() => setEditWordId(null)} color={C.ink40} />
+                    </View>
+                    <Field
+                      label="영어 단어"
+                      placeholder="예: sun"
+                      autoCapitalize="none"
+                      autoCorrect={false}
+                      value={editWord.word}
+                      onChangeText={(t) => {
+                        setEditWord((f) => ({ ...f, word: t }));
+                        setWordMsg('');
+                      }}
+                    />
+                    <Field
+                      label="뜻"
+                      placeholder="예: 해"
+                      value={editWord.ko}
+                      onChangeText={(t) => {
+                        setEditWord((f) => ({ ...f, ko: t }));
+                        setWordMsg('');
+                      }}
+                    />
+                    <Field
+                      label="발음기호"
+                      hint="선택"
+                      placeholder="예: /sʌn/"
+                      autoCapitalize="none"
+                      autoCorrect={false}
+                      value={editWord.ipa}
+                      onChangeText={(t) => setEditWord((f) => ({ ...f, ipa: t }))}
+                    />
+                    <PrimaryButton
+                      label={wordSaving ? '저장하는 중…' : '수정 저장'}
+                      onPress={saveWord}
+                      disabled={wordSaving}
+                    />
+                  </View>
+                ) : (
+                  <View style={s.wordRow}>
+                    <View style={{ flex: 1 }}>
+                      <Text style={s.wordEn}>{w.word}</Text>
+                      <View style={{ flexDirection: 'row', alignItems: 'baseline', marginTop: 2 }}>
+                        {w.ipa ? <Text style={s.wordIpa}>{w.ipa}</Text> : null}
+                        <Text style={s.wordKo}>{w.ko}</Text>
+                      </View>
+                    </View>
+                    <TextLink label="수정" onPress={() => openWordEdit(w)} color={C.ink40} />
+                    <View style={{ width: 16 }} />
+                    <Pressable
+                      onPress={() => void removeWord(w)}
+                      disabled={wordSaving}
+                      hitSlop={8}
+                      style={({ pressed }) => ({ opacity: pressed ? 0.55 : 1 })}
+                    >
+                      <Text style={[s.wordDelete, confirmWordDelete === w.id ? { color: C.clay } : null]}>
+                        {confirmWordDelete === w.id ? '정말 삭제?' : '삭제'}
+                      </Text>
+                    </Pressable>
+                  </View>
+                )}
+                <Rule />
+              </View>
+            ))
+          )}
+
+          {wordMsg ? <Text style={s.wordMsg}>{wordMsg}</Text> : null}
+
+          <View style={{ marginTop: 16 }}>
+            {wordAddOpen ? (
+              <View style={s.wordForm}>
+                <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 6 }}>
+                  <Text style={[eyebrow, { fontSize: 8.5, letterSpacing: 2 }]}>NEW WORD</Text>
+                  <TextLink label="닫기" onPress={() => setWordAddOpen(false)} color={C.ink40} />
+                </View>
+                <Field
+                  label="영어 단어"
+                  placeholder="예: sun"
+                  autoCapitalize="none"
+                  autoCorrect={false}
+                  value={newWord.word}
+                  onChangeText={(t) => {
+                    setNewWord((f) => ({ ...f, word: t }));
+                    setWordMsg('');
+                  }}
+                />
+                <Field
+                  label="뜻"
+                  placeholder="예: 해"
+                  value={newWord.ko}
+                  onChangeText={(t) => {
+                    setNewWord((f) => ({ ...f, ko: t }));
+                    setWordMsg('');
+                  }}
+                />
+                <Field
+                  label="발음기호"
+                  hint="선택"
+                  placeholder="예: /sʌn/"
+                  autoCapitalize="none"
+                  autoCorrect={false}
+                  value={newWord.ipa}
+                  onChangeText={(t) => setNewWord((f) => ({ ...f, ipa: t }))}
+                />
+                <PrimaryButton
+                  label={wordSaving ? '추가하는 중…' : '이 단어 추가하기'}
+                  onPress={addWord}
+                  disabled={wordSaving}
+                />
+              </View>
+            ) : (
+              <Pressable onPress={() => setWordAddOpen(true)} style={({ pressed }) => [s.addRow, { opacity: pressed ? 0.6 : 1 }]}>
+                <Text style={s.addPlus}>＋</Text>
+                <Text style={s.addLabel}>새 단어 추가</Text>
+                <Text style={s.arrow}>→</Text>
+              </Pressable>
+            )}
+          </View>
+
+          <Text style={s.note}>
+            단어를 두 개 이하로 두어도 퀴즈는 세 개 보기로 나옵니다. 지운 단어는 아이 모드에서도 바로 사라집니다.
+          </Text>
+        </View>
+
         {/* 선생님 계정 */}
         <View style={{ marginTop: 30 }}>
           <Rule />
@@ -462,4 +711,35 @@ const s = StyleSheet.create({
     borderTopColor: C.ruleStrong,
   },
   noticeText: { fontFamily: F.krSans, fontSize: 12, lineHeight: 20, color: C.ink70, marginTop: 4 },
+  wordsLead: {
+    fontFamily: F.krSans,
+    fontSize: 11.5,
+    lineHeight: 19,
+    color: C.ink55,
+    marginTop: 10,
+    marginBottom: 6,
+  },
+  wordRow: {
+    paddingVertical: 13,
+    flexDirection: 'row',
+    alignItems: 'center',
+  },
+  wordEn: { fontFamily: F.serif, fontSize: 24, color: C.ink, letterSpacing: -0.4 },
+  wordIpa: { fontFamily: F.mono, fontSize: 10, color: C.ink40 },
+  wordKo: { fontFamily: F.krSans, fontSize: 11, color: C.ink55, marginLeft: 10 },
+  wordDelete: { fontFamily: F.krSans, fontSize: 12, color: C.ink70, textDecorationLine: 'underline' },
+  wordForm: {
+    borderWidth: S.hair,
+    borderColor: C.ruleStrong,
+    padding: 16,
+    backgroundColor: C.paperShade,
+    marginVertical: 10,
+  },
+  wordMsg: {
+    fontFamily: F.krSans,
+    fontSize: 11.5,
+    lineHeight: 18,
+    color: C.ink55,
+    marginTop: 10,
+  },
 });
