@@ -23,7 +23,10 @@
     },
     "android": {
       "package": "com.avrilencoolish.app",
-      "permissions": ["CAMERA", "READ_MEDIA_VIDEO"],
+      "permissions": [
+        "CAMERA",
+        "READ_MEDIA_VIDEO"
+      ],
       "adaptiveIcon": {
         "foregroundImage": "./assets/adaptive-icon.png",
         "backgroundColor": "#FAF7F2"
@@ -35,8 +38,12 @@
       "favicon": "./assets/favicon.png"
     },
     "experiments": {
-      "baseUrl": "/avril-encoolish-app"
+      "baseUrl": "/Avril-encoolsih-app"
     },
-    "plugins": ["expo-font", "expo-video", "expo-image-picker"]
+    "plugins": [
+      "expo-font",
+      "expo-video",
+      "expo-image-picker"
+    ]
   }
 }
