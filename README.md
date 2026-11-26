@@ -1,6 +1,6 @@
 # Avril Encoolish — 앱 (MVP)
 
-4–6세 영유·국제학교 입학 준비 수업 **Avril Encoolish**의 학부모·아이·선생님용 앱 첫 작동 버전입니다.
+4–6세 아이들을 위한 영어 수업 **Avril Encoolish**의 학부모·아이·선생님용 앱 첫 작동 버전입니다.
 Expo(React Native) 한 벌의 코드로 **iOS · Android · Web**에서 같은 화면이 돕니다.
 
 - 아이디어북 색: 종이 `#FAF7F2` · 인쇄 흑 `#1C1A17` · 클레이 `#A4572F` · 세이지 `#5A6B5C`

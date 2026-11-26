@@ -26,8 +26,10 @@ export default function EntryScreen({ onKids, onParent, onTeacher }: Props) {
     >
       <View style={{ flexDirection: 'row', alignItems: 'center' }}>
         <Sparkle size={7} color={C.clay} />
-        <Text style={[eyebrow, { marginLeft: 8, color: C.ink55, fontSize: 8.5, letterSpacing: 1.9 }]}>
-          4–6세 영유 · 국제학교 입학 준비
+        <Text style={s.eyebrowKo}>
+          {'아이들을 위한 선택'}
+          <Text style={{ color: C.clay }}>{' · '}</Text>
+          {'Avril 선생님'}
         </Text>
       </View>
 
@@ -41,8 +43,8 @@ export default function EntryScreen({ onKids, onParent, onTeacher }: Props) {
 
       <Text style={s.krHeadline}>정보는 교육이 아니다.</Text>
       <Text style={s.lead}>
-        아이의 귀가 트이는 시간은 고작 25분입니다.{'\n'}
-        성향을 먼저 읽고, 그 25분을 흘리지 않게.
+        아이 한 명 한 명의 마음을 먼저 읽고,{'\n'}
+        따뜻하게 영어를 만나는 시간.
       </Text>
 
       <View style={{ flexDirection: 'row', justifyContent: 'space-between', marginTop: 34, marginBottom: 10 }}>
@@ -102,6 +104,13 @@ const s = StyleSheet.create({
     color: C.ink,
     letterSpacing: -1.4,
     marginTop: -6,
+  },
+  eyebrowKo: {
+    marginLeft: 9,
+    fontFamily: F.krSans,
+    fontSize: 10.5,
+    letterSpacing: 0.3,
+    color: C.ink55,
   },
   krHeadline: {
     fontFamily: F.krSerif,
