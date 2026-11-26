@@ -40,12 +40,12 @@ npx expo start --web      # 브라우저에서 바로 보기
 
 아이폰 사파리에서 바로 열리는 주소입니다.
 
-**https://nohobmi-code.github.io/Avril-Encoolsih-app/**
+**https://nohobmi-code.github.io/Avril-encoolsih-app/**
 
 `gh-pages` 브랜치의 빌드 산출물이 그대로 서빙됩니다. 화면을 고친 뒤 다시 올릴 때:
 
 ```bash
-npx expo export --platform web            # app.json experiments.baseUrl = "/Avril-Encoolsih-app"
+npx expo export --platform web            # app.json experiments.baseUrl = "/Avril-encoolsih-app"
 touch dist/.nojekyll
 git clone --branch main . /tmp/pages && cd /tmp/pages
 git checkout --orphan gh-pages && git rm -rq --cached . && find . -mindepth 1 -maxdepth 1 ! -name .git -exec rm -rf {} +
@@ -116,7 +116,7 @@ MVP라 계정·영상·노트는 앱이 켜져 있는 동안 메모리에 있습
    ```
    - App Store: App Store Connect에 앱 생성 → 스크린샷(6.7", 6.5", 5.5") · 설명 · 개인정보 처리방침 URL → 심사 제출. 아이 영상이 오가는 앱이므로 **개인정보 처리방침과 아동 데이터 취급**을 먼저 정리해야 합니다.
    - Google Play: Play Console에 앱 생성 → 데이터 보안 양식 · 콘텐츠 등급 · 아동 대상 앱 정책 → 내부 테스트 트랙부터.
-5. **웹 배포(선택)** — 이미 GitHub Pages(`https://nohobmi-code.github.io/Avril-Encoolsih-app/`)에 올라가 있습니다. 앱스토어 배포와 별개로, `dist/`를 Netlify·Vercel·S3에 올려 별도 링크로 쓸 수도 있습니다.
+5. **웹 배포(선택)** — 이미 GitHub Pages(`https://nohobmi-code.github.io/Avril-encoolsih-app/`)에 올라가 있습니다. 앱스토어 배포와 별개로, `dist/`를 Netlify·Vercel·S3에 올려 별도 링크로 쓸 수도 있습니다.
 
 ## 5. 화면 캡처
 
