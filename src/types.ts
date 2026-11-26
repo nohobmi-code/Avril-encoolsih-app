@@ -18,6 +18,21 @@ export type Student = {
   created_at?: string;
 };
 
+export type SignupStatus = 'pending' | 'approved' | 'rejected';
+
+/** 어머님이 직접 보낸 가입 신청 — 선생님이 승인해야 아이 방이 열린다. */
+export type SignupRequest = {
+  id: string;
+  user_id: string;
+  child_name: string;
+  age_label: string | null;
+  username: string;
+  status: SignupStatus;
+  student_id: string | null;
+  created_at: string;
+  reviewed_at: string | null;
+};
+
 export type Lesson = {
   id: string;
   student_id: string;
@@ -35,6 +50,8 @@ export type Screen =
   | { name: 'entry' }
   | { name: 'kids' }
   | { name: 'login'; mode: Role }
+  | { name: 'signup' }
+  | { name: 'pending'; request?: SignupRequest }
   | { name: 'welcome' }
   | { name: 'parent' }
   | { name: 'teacher' }

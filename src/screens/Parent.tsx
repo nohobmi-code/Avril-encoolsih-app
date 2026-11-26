@@ -2,8 +2,8 @@ import React, { useCallback, useEffect, useState } from 'react';
 import { Platform, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { VideoView, useVideoPlayer } from 'expo-video';
 import { C, F, S, body, eyebrow } from '../theme';
-import { Colophon, Header, Meta, Rule, Sparkle, Tabs, TextLink } from '../components/ui';
-import { ApiError, listLessons, videoUrl } from '../lib/api';
+import { Colophon, Field, Header, Meta, PrimaryButton, Rule, Sparkle, Tabs, TextLink } from '../components/ui';
+import { ApiError, MIN_PASSWORD, changePassword, listLessons, videoUrl } from '../lib/api';
 import { koreanDate, meaningOf, shortDate, useStore } from '../store';
 import { Lesson } from '../types';
 
@@ -64,7 +64,38 @@ export default function ParentScreen({ onLogout }: { onLogout: () => void }) {
   const [url, setUrl] = useState<string | null>(null);
   const [urlError, setUrlError] = useState('');
 
+  const [pwOpen, setPwOpen] = useState(false);
+  const [pw, setPw] = useState('');
+  const [pw2, setPw2] = useState('');
+  const [pwMsg, setPwMsg] = useState('');
+  const [pwBusy, setPwBusy] = useState(false);
+
   const name = student?.name ?? '';
+
+  const submitPassword = async () => {
+    if (pwBusy) return;
+    setPwMsg('');
+    if (pw.length < MIN_PASSWORD) {
+      setPwMsg(`비밀번호는 ${MIN_PASSWORD}자 이상으로 정해 주세요.`);
+      return;
+    }
+    if (pw !== pw2) {
+      setPwMsg('두 비밀번호가 서로 다릅니다.');
+      return;
+    }
+    setPwBusy(true);
+    try {
+      await changePassword(pw);
+      setPw('');
+      setPw2('');
+      setPwOpen(false);
+      setPwMsg('비밀번호를 바꿨습니다. 다음 로그인부터 새 비밀번호를 쓰시면 됩니다.');
+    } catch (e) {
+      setPwMsg(e instanceof ApiError ? e.message : '비밀번호를 바꾸지 못했습니다. 잠시 뒤 다시 시도해 주세요.');
+    } finally {
+      setPwBusy(false);
+    }
+  };
 
   const load = useCallback(async () => {
     if (!student) {
@@ -296,6 +327,58 @@ export default function ParentScreen({ onLogout }: { onLogout: () => void }) {
           </>
         )}
 
+        {/* 어머님 계정 — 초기 비밀번호를 받은 어머님이 직접 바꾼다. */}
+        <View style={{ marginTop: 34 }}>
+          <Rule />
+          <View style={{ paddingTop: 14 }}>
+            <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
+              <Text style={[eyebrow, { fontSize: 8.5, letterSpacing: 2 }]}>ACCOUNT</Text>
+              <Meta style={{ color: C.ink40 }}>{profile?.username?.toUpperCase()}</Meta>
+            </View>
+            {pwOpen ? (
+              <View style={{ marginTop: 14 }}>
+                <Field
+                  label="새 비밀번호"
+                  hint={`${MIN_PASSWORD}자 이상`}
+                  secureTextEntry
+                  autoCapitalize="none"
+                  autoComplete="new-password"
+                  value={pw}
+                  onChangeText={(t) => {
+                    setPw(t);
+                    setPwMsg('');
+                  }}
+                />
+                <Field
+                  label="새 비밀번호 확인"
+                  secureTextEntry
+                  autoCapitalize="none"
+                  value={pw2}
+                  onChangeText={(t) => {
+                    setPw2(t);
+                    setPwMsg('');
+                  }}
+                />
+                {pwMsg ? <Text style={st.pwMsg}>{pwMsg}</Text> : null}
+                <PrimaryButton
+                  label={pwBusy ? '바꾸는 중…' : '비밀번호 바꾸기'}
+                  tone="ink"
+                  onPress={submitPassword}
+                  disabled={pwBusy}
+                />
+                <View style={{ marginTop: 14 }}>
+                  <TextLink label="닫기" onPress={() => setPwOpen(false)} color={C.ink40} />
+                </View>
+              </View>
+            ) : (
+              <View style={{ marginTop: 12 }}>
+                <TextLink label="비밀번호 변경 →" onPress={() => setPwOpen(true)} color={C.clay} />
+                {pwMsg ? <Text style={st.pwMsg}>{pwMsg}</Text> : null}
+              </View>
+            )}
+          </View>
+        </View>
+
         <Colophon note={`PRIVATE · ${name}`} />
       </ScrollView>
     </View>
@@ -439,4 +522,12 @@ const st = StyleSheet.create({
   sign: { fontFamily: F.serifItalic, fontSize: 15, color: C.ink55, marginTop: 16 },
   quiet: { fontFamily: F.krSans, fontSize: 12, color: C.ink40, paddingVertical: 30 },
   errorText: { fontFamily: F.krSans, fontSize: 12.5, color: C.clay, paddingVertical: 20 },
+  pwMsg: {
+    fontFamily: F.krSans,
+    fontSize: 11.5,
+    lineHeight: 18,
+    color: C.clay,
+    marginTop: 8,
+    marginBottom: 10,
+  },
 });

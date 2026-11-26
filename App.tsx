@@ -16,13 +16,15 @@ import { Screen } from './src/types';
 import EntryScreen from './src/screens/Entry';
 import KidsScreen from './src/screens/Kids';
 import LoginScreen from './src/screens/Login';
+import SignupScreen from './src/screens/Signup';
+import PendingScreen from './src/screens/Pending';
 import WelcomeScreen from './src/screens/Welcome';
 import ParentScreen from './src/screens/Parent';
 import TeacherScreen from './src/screens/Teacher';
 import TeacherRoomScreen from './src/screens/TeacherRoom';
 
 function Router() {
-  const { ready, profile, student, signOut } = useStore();
+  const { ready, profile, student, pending, signOut } = useStore();
   const [screen, setScreen] = useState<Screen>({ name: 'entry' });
 
   // 세션이 끊기면 잠긴 화면에서 스스로 빠져나온다.
@@ -33,6 +35,13 @@ function Router() {
     if (!profile) setScreen({ name: 'entry' });
     else if (profile.role === 'parent' && screen.name === 'teacher') setScreen({ name: 'entry' });
   }, [profile, screen]);
+
+  // 승인 대기 화면에 있는 동안 승인이 나면 바로 환영 화면으로.
+  useEffect(() => {
+    if (screen.name !== 'pending') return;
+    if (profile?.role === 'parent' && student) setScreen({ name: 'welcome' });
+    else if (profile?.role === 'teacher') setScreen({ name: 'teacher' });
+  }, [profile, student, screen.name]);
 
   if (!ready) return <View style={{ flex: 1, backgroundColor: C.paper }} />;
 
@@ -46,9 +55,35 @@ function Router() {
           mode={screen.mode}
           onBack={() => setScreen({ name: 'entry' })}
           onSwitch={() => setScreen({ name: 'login', mode: screen.mode === 'parent' ? 'teacher' : 'parent' })}
-          onSuccess={(p) =>
-            setScreen(p.role === 'teacher' ? { name: 'teacher' } : { name: 'welcome' })
+          onSignup={() => setScreen({ name: 'signup' })}
+          onSuccess={(account) =>
+            setScreen(
+              account.profile?.role === 'teacher'
+                ? { name: 'teacher' }
+                : account.pending
+                  ? { name: 'pending', request: account.pending }
+                  : { name: 'welcome' },
+            )
           }
+        />
+      );
+
+    case 'signup':
+      return (
+        <SignupScreen
+          onBack={() => setScreen({ name: 'login', mode: 'parent' })}
+          onDone={(request) => setScreen({ name: 'pending', request })}
+        />
+      );
+
+    case 'pending':
+      return (
+        <PendingScreen
+          request={screen.request}
+          onLogout={async () => {
+            await signOut();
+            setScreen({ name: 'entry' });
+          }}
         />
       );
 
@@ -94,7 +129,15 @@ function Router() {
       return (
         <EntryScreen
           onKids={() => setScreen({ name: 'kids' })}
-          onParent={() => setScreen(profile?.role === 'parent' ? { name: 'parent' } : { name: 'login', mode: 'parent' })}
+          onParent={() =>
+            setScreen(
+              profile?.role === 'parent'
+                ? { name: 'parent' }
+                : pending
+                  ? { name: 'pending' }
+                  : { name: 'login', mode: 'parent' },
+            )
+          }
           onTeacher={() =>
             setScreen(profile?.role === 'teacher' ? { name: 'teacher' } : { name: 'login', mode: 'teacher' })
           }

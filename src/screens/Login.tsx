@@ -2,9 +2,9 @@ import React, { useState } from 'react';
 import { Image, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { C, F, S, body, eyebrow } from '../theme';
 import { Field, Header, PrimaryButton, TextLink } from '../components/ui';
-import { ApiError } from '../lib/api';
+import { Account, ApiError } from '../lib/api';
 import { useStore } from '../store';
-import { Profile, Role } from '../types';
+import { Role } from '../types';
 
 const COPY: Record<Role, { folio: string; eyebrow: string; title: string; lead: string; aside: string; switch: string }> = {
   parent: {
@@ -29,12 +29,14 @@ export default function LoginScreen({
   mode,
   onBack,
   onSwitch,
+  onSignup,
   onSuccess,
 }: {
   mode: Role;
   onBack: () => void;
   onSwitch: () => void;
-  onSuccess: (profile: Profile) => void;
+  onSignup: () => void;
+  onSuccess: (account: Account) => void;
 }) {
   const { signIn } = useStore();
   const copy = COPY[mode];
@@ -48,8 +50,8 @@ export default function LoginScreen({
     setError('');
     setBusy(true);
     try {
-      const profile = await signIn(id, pw);
-      onSuccess(profile);
+      const account = await signIn(id, pw);
+      onSuccess(account);
     } catch (e) {
       setError(e instanceof ApiError ? e.message : '로그인하지 못했습니다. 잠시 뒤 다시 시도해 주세요.');
     } finally {
@@ -110,6 +112,12 @@ export default function LoginScreen({
         <View style={{ marginTop: 26 }}>
           <TextLink label={copy.switch} onPress={onSwitch} color={C.clay} />
         </View>
+
+        {mode === 'parent' ? (
+          <View style={{ marginTop: 14 }}>
+            <TextLink label="어머님 회원가입 →" onPress={onSignup} color={C.sage} />
+          </View>
+        ) : null}
 
         <View style={{ flexDirection: 'row', marginTop: 30 }}>
           <View style={{ width: 1, backgroundColor: C.sage, marginRight: 14, opacity: 0.5 }} />

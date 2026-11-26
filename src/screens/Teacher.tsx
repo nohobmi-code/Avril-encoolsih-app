@@ -2,8 +2,18 @@ import React, { useCallback, useEffect, useState } from 'react';
 import { Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { C, F, S, body, eyebrow } from '../theme';
 import { Colophon, Field, Header, Meta, PrimaryButton, Rule, Sparkle, TextLink } from '../components/ui';
-import { ApiError, StudentRow, changePassword, createStudent, listStudents } from '../lib/api';
+import {
+  ApiError,
+  StudentRow,
+  approveSignup,
+  changePassword,
+  createStudent,
+  listSignupRequests,
+  listStudents,
+  rejectSignup,
+} from '../lib/api';
 import { shortDate, useStore } from '../store';
+import { SignupRequest } from '../types';
 
 const EMPTY = { name: '', ageLabel: '', username: '', password: '' };
 
@@ -18,6 +28,10 @@ export default function TeacherScreen({
 }) {
   const { profile, reload } = useStore();
   const [students, setStudents] = useState<StudentRow[]>([]);
+  const [requests, setRequests] = useState<SignupRequest[]>([]);
+  const [reqBusy, setReqBusy] = useState<string | null>(null);
+  const [confirmReject, setConfirmReject] = useState<string | null>(null);
+  const [reqMsg, setReqMsg] = useState('');
   const [busy, setBusy] = useState(true);
   const [error, setError] = useState('');
   const [notice, setNotice] = useState('');
@@ -38,12 +52,52 @@ export default function TeacherScreen({
     setError('');
     try {
       setStudents(await listStudents());
+      setRequests(await listSignupRequests());
     } catch (e) {
       setError(e instanceof ApiError ? e.message : '아이 목록을 불러오지 못했습니다.');
     } finally {
       setBusy(false);
     }
   }, []);
+
+  const approve = async (r: SignupRequest) => {
+    if (reqBusy) return;
+    setReqBusy(r.id);
+    setReqMsg('');
+    setConfirmReject(null);
+    try {
+      await approveSignup(r.id);
+      setRequests((prev) => prev.filter((x) => x.id !== r.id));
+      setNotice(`${r.child_name}의 방을 열었습니다. 어머님이 로그인하면 환영 화면이 열립니다.`);
+      await load();
+      await reload();
+    } catch (e) {
+      setReqMsg(e instanceof ApiError ? e.message : '승인하지 못했습니다. 잠시 뒤 다시 시도해 주세요.');
+    } finally {
+      setReqBusy(null);
+    }
+  };
+
+  const reject = async (r: SignupRequest) => {
+    if (reqBusy) return;
+    if (confirmReject !== r.id) {
+      setConfirmReject(r.id);
+      setReqMsg('');
+      return;
+    }
+    setReqBusy(r.id);
+    setReqMsg('');
+    try {
+      await rejectSignup(r.id);
+      setRequests((prev) => prev.filter((x) => x.id !== r.id));
+      setNotice(`${r.child_name}의 신청을 거절했습니다. 신청 계정도 함께 정리되어, 어머님이 같은 아이디로 다시 신청할 수 있습니다.`);
+    } catch (e) {
+      setReqMsg(e instanceof ApiError ? e.message : '거절하지 못했습니다. 잠시 뒤 다시 시도해 주세요.');
+    } finally {
+      setReqBusy(null);
+      setConfirmReject(null);
+    }
+  };
 
   useEffect(() => {
     void load();
@@ -113,6 +167,48 @@ export default function TeacherScreen({
               <Text style={[eyebrow, { marginLeft: 7, fontSize: 8.5, letterSpacing: 2, color: C.sage }]}>SAVED</Text>
             </View>
             <Text style={s.noticeText}>{notice}</Text>
+          </View>
+        ) : null}
+
+        {/* 가입 승인 대기 */}
+        {requests.length > 0 ? (
+          <View style={{ marginTop: 30 }}>
+            <View style={{ flexDirection: 'row', justifyContent: 'space-between', marginBottom: 8 }}>
+              <Text style={[eyebrow, { fontSize: 8.5, letterSpacing: 2, color: C.clay }]}>SIGNUP REQUESTS</Text>
+              <Meta style={{ color: C.clay }}>{requests.length} WAITING</Meta>
+            </View>
+            <Rule />
+            {requests.map((r) => (
+              <View key={r.id} style={s.reqRow}>
+                <View style={{ flexDirection: 'row', alignItems: 'baseline' }}>
+                  <Text style={s.name}>{r.child_name}</Text>
+                  {r.age_label ? <Text style={s.meta}>{r.age_label}</Text> : null}
+                </View>
+                <Text style={s.line}>어머님 아이디 · {r.username}</Text>
+                <Meta style={{ color: C.ink40, marginTop: 6 }}>신청 {shortDate(r.created_at.slice(0, 10))}</Meta>
+
+                <View style={{ flexDirection: 'row', marginTop: 14, alignItems: 'center' }}>
+                  <Pressable
+                    onPress={() => void approve(r)}
+                    disabled={reqBusy === r.id}
+                    style={({ pressed }) => [s.approveBtn, { opacity: reqBusy === r.id ? 0.4 : pressed ? 0.75 : 1 }]}
+                  >
+                    <Text style={s.approveLabel}>{reqBusy === r.id ? '처리 중…' : '승인'}</Text>
+                  </Pressable>
+                  <Pressable
+                    onPress={() => void reject(r)}
+                    disabled={reqBusy === r.id}
+                    style={({ pressed }) => [s.rejectBtn, { opacity: reqBusy === r.id ? 0.4 : pressed ? 0.6 : 1 }]}
+                  >
+                    <Text style={s.rejectLabel}>{confirmReject === r.id ? '정말 거절할까요?' : '거절'}</Text>
+                  </Pressable>
+                </View>
+                {confirmReject === r.id ? (
+                  <Text style={s.reqNote}>거절하면 신청 계정도 정리됩니다. 어머님은 같은 아이디로 다시 신청할 수 있습니다.</Text>
+                ) : null}
+              </View>
+            ))}
+            {reqMsg ? <Text style={s.error}>{reqMsg}</Text> : null}
           </View>
         ) : null}
 
@@ -302,6 +398,27 @@ const s = StyleSheet.create({
   },
   lead: { ...body, fontSize: 12.5, lineHeight: 21, marginTop: 8 },
   row: { paddingVertical: 18, flexDirection: 'row', alignItems: 'center' },
+  reqRow: {
+    paddingVertical: 16,
+    borderBottomWidth: S.hair,
+    borderBottomColor: C.rule,
+  },
+  reqNote: {
+    fontFamily: F.krSans,
+    fontSize: 10.5,
+    lineHeight: 17,
+    color: C.clay,
+    marginTop: 8,
+  },
+  approveBtn: { backgroundColor: C.clay, paddingVertical: 9, paddingHorizontal: 22, marginRight: 10 },
+  approveLabel: { fontFamily: F.sansMedium, fontSize: 9, letterSpacing: 2, color: C.paper },
+  rejectBtn: {
+    borderWidth: S.hair,
+    borderColor: C.ruleStrong,
+    paddingVertical: 9,
+    paddingHorizontal: 16,
+  },
+  rejectLabel: { fontFamily: F.krSans, fontSize: 11.5, color: C.ink70 },
   name: { fontFamily: F.krSerif, fontSize: 21, color: C.ink, letterSpacing: -0.2 },
   meta: { fontFamily: F.krSans, fontSize: 11, color: C.ink40, marginLeft: 8 },
   line: { fontFamily: F.krSans, fontSize: 11.5, color: C.ink55, marginTop: 4 },

@@ -1,5 +1,5 @@
 import { createSignupClient, emailFor, supabase } from './supabase';
-import { Lesson, Profile, Student } from '../types';
+import { Lesson, Profile, SignupRequest, Student } from '../types';
 
 export const BUCKET = 'lesson-videos';
 export const USERNAME_RE = /^[a-z0-9][a-z0-9._-]{2,23}$/;
@@ -38,9 +38,15 @@ const loadStudent = async (studentId: string | null): Promise<Student | null> =>
   return (data as Student) ?? null;
 };
 
-export type Account = { profile: Profile; student: Student | null };
+export type Account = {
+  /** 승인 전 어머님은 프로필이 아직 없다. */
+  profile: Profile | null;
+  student: Student | null;
+  /** 승인 대기·거절된 가입 신청 1건 (있을 때만) */
+  pending: SignupRequest | null;
+};
 
-/** 지금 로그인한 계정의 프로필(과 어머님이면 아이)을 읽는다. */
+/** 지금 로그인한 계정의 프로필(과 어머님이면 아이), 아직 승인 전이면 신청 상태를 읽는다. */
 export async function loadAccount(): Promise<Account | null> {
   const { data: userData } = await supabase.auth.getUser();
   const user = userData?.user;
@@ -52,9 +58,24 @@ export async function loadAccount(): Promise<Account | null> {
     .eq('id', user.id)
     .maybeSingle();
 
-  if (error || !profile) return null;
-  const p = profile as Profile;
-  return { profile: p, student: p.role === 'parent' ? await loadStudent(p.student_id) : null };
+  if (error) return null;
+  if (profile) {
+    const p = profile as Profile;
+    return {
+      profile: p,
+      student: p.role === 'parent' ? await loadStudent(p.student_id) : null,
+      pending: null,
+    };
+  }
+
+  // 프로필이 없으면 가입 신청 한 줄만 확인할 수 있다. (RLS: 본인 것 1건)
+  const { data: request } = await supabase
+    .from('signup_requests')
+    .select('*')
+    .eq('user_id', user.id)
+    .maybeSingle();
+
+  return { profile: null, student: null, pending: (request as SignupRequest) ?? null };
 }
 
 export async function signIn(username: string, password: string): Promise<Account> {
@@ -68,11 +89,100 @@ export async function signIn(username: string, password: string): Promise<Accoun
   if (error) fail(authMessage(error.message));
 
   const account = await loadAccount();
-  if (!account) {
+  if (!account || (!account.profile && !account.pending)) {
     await supabase.auth.signOut();
     fail('이 계정은 아직 아이 정보와 연결되지 않았습니다. 선생님께 문의해 주세요.');
   }
   return account as Account;
+}
+
+/* ───────── 어머님 직접 가입 (선생님 승인제) ───────── */
+
+/** 가입 전에 아이디가 비어 있는지 확인한다. (이미 쓰는 아이디면 false) */
+export async function usernameAvailable(username: string): Promise<boolean> {
+  const uname = username.trim().toLowerCase();
+  if (!USERNAME_RE.test(uname)) return false;
+  const { data, error } = await supabase.rpc('username_available', { p_username: uname });
+  if (error) return true; // 확인이 실패하면 가입 단계에서 다시 걸러진다.
+  return data !== false;
+}
+
+/**
+ * 어머님이 직접 가입한다.
+ * 계정을 만들고 「선생님 승인 대기」 신청 한 줄을 남긴다. 승인 전에는 아무 자료도 열리지 않는다.
+ */
+export async function requestParentSignup(input: {
+  childName: string;
+  ageLabel: string;
+  username: string;
+  password: string;
+}): Promise<SignupRequest> {
+  const childName = input.childName.trim();
+  const ageLabel = input.ageLabel.trim();
+  const uname = input.username.trim().toLowerCase();
+
+  if (!childName) fail('아이 이름을 적어 주세요.');
+  if (!USERNAME_RE.test(uname))
+    fail('사용할 아이디는 영문 소문자·숫자로 3~24자입니다. (예: mina2026)');
+  if (input.password.length < MIN_PASSWORD) fail(`비밀번호는 ${MIN_PASSWORD}자 이상으로 정해 주세요.`);
+
+  if (!(await usernameAvailable(uname)))
+    fail('이미 사용 중인 아이디입니다. 다른 아이디로 정해 주세요.');
+
+  // 새 계정은 일회용 클라이언트에서 만든다 (로그인 화면의 세션과 섞이지 않게).
+  const signup = createSignupClient();
+  const created = await signup.auth.signUp({ email: emailFor(uname), password: input.password });
+
+  if (created.error && /already/i.test(created.error.message)) {
+    // 가입 도중 끊겨 남은 빈 계정이면 같은 비밀번호로 이어서 신청한다.
+    const again = await signup.auth.signInWithPassword({ email: emailFor(uname), password: input.password });
+    if (again.error) fail('이미 사용 중인 아이디입니다. 다른 아이디로 정해 주세요.');
+  } else if (created.error) {
+    fail(authMessage(created.error.message));
+  }
+
+  const { data, error } = await signup.rpc('submit_signup_request', {
+    p_child_name: childName,
+    p_age_label: ageLabel || null,
+  });
+
+  if (error || !data) {
+    // 신청을 남기지 못했으면 방금 만든 빈 계정도 지워 아이디를 다시 쓸 수 있게 한다.
+    await signup.rpc('cancel_my_signup');
+    if (error?.code === '23505')
+      fail('이미 사용 중인 아이디입니다. 다른 아이디로 정해 주세요.');
+    fail(authMessage(error?.message));
+  }
+
+  return data as SignupRequest;
+}
+
+/* ───────── 선생님: 가입 승인 ───────── */
+
+export async function listSignupRequests(): Promise<SignupRequest[]> {
+  const { data, error } = await supabase
+    .from('signup_requests')
+    .select('*')
+    .eq('status', 'pending')
+    .order('created_at', { ascending: true });
+  if (error) fail('가입 신청을 불러오지 못했습니다.');
+  return (data ?? []) as SignupRequest[];
+}
+
+/** 승인 — 아이 방(students)과 어머님 프로필이 함께 열린다. */
+export async function approveSignup(requestId: string): Promise<string> {
+  const { data, error } = await supabase.rpc('approve_signup_request', { p_request_id: requestId });
+  if (error) {
+    if (error.code === '23505')
+      fail('같은 아이디의 방이 이미 있습니다. 어머님 아이디를 확인해 주세요.');
+    fail('승인하지 못했습니다. 잠시 뒤 다시 시도해 주세요.');
+  }
+  return data as string;
+}
+
+export async function rejectSignup(requestId: string) {
+  const { error } = await supabase.rpc('reject_signup_request', { p_request_id: requestId });
+  if (error) fail('거절하지 못했습니다. 잠시 뒤 다시 시도해 주세요.');
 }
 
 export async function signOut() {
