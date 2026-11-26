@@ -8,6 +8,7 @@
     "scheme": "avrilencoolish",
     "userInterfaceStyle": "light",
     "backgroundColor": "#FAF7F2",
+    "owner": "nohobmi",
     "splash": {
       "image": "./assets/splash-icon.png",
       "resizeMode": "contain",
@@ -44,6 +45,11 @@
       "expo-font",
       "expo-video",
       "expo-image-picker"
-    ]
+    ],
+    "extra": {
+      "eas": {
+        "projectId": "4fe4dc36-d3ef-4083-af59-393dcdf171fe"
+      }
+    }
   }
 }
