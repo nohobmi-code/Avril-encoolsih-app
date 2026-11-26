@@ -1,46 +1,41 @@
-/** 아이 계정·수업 기록의 기본 형태. 계정은 아이 한 명과 1:1로 묶인다. */
-export type ChildId = 'yulli' | 'minhyuk';
+/** 서버(Supabase)에서 오는 자료의 형태. */
 
-export type Expression = { en: string; ko: string };
+export type Role = 'teacher' | 'parent';
 
-export type Note = {
-  topic: string;
-  comment: string;
-  words: string[];
-  expressions: Expression[];
-  mission: string;
+export type Profile = {
+  id: string;
+  role: Role;
+  username: string;
+  student_id: string | null;
+  created_at?: string;
+};
+
+export type Student = {
+  id: string;
+  name: string;
+  age_label: string | null;
+  parent_username: string;
+  created_at?: string;
 };
 
 export type Lesson = {
   id: string;
-  /** 2026-11-26 형태 */
-  date: string;
+  student_id: string;
+  /** 2026-11-26 형태 — Postgres date */
+  lesson_date: string;
   title: string;
-  /** 12:40 형태 */
-  duration: string;
-  /** 선생님이 올린 영상의 uri. 없으면 모의 플레이어로 보여준다. */
-  videoUri?: string;
-  videoName?: string;
-  note: Note;
-};
-
-export type Child = {
-  id: ChildId;
-  /** 화면에 보이는 이름 */
-  name: string;
-  nameEn: string;
-  age: string;
-  /** 어머님 계정 아이디 (비밀번호는 데모 공통) */
-  account: string;
-  teacherLine: string;
-  lessons: Lesson[];
+  summary: string | null;
+  homework: string | null;
+  video_path: string | null;
+  words: string[] | null;
+  created_at?: string;
 };
 
 export type Screen =
   | { name: 'entry' }
   | { name: 'kids' }
-  | { name: 'login' }
-  | { name: 'welcome'; childId: ChildId }
-  | { name: 'parent'; childId: ChildId }
+  | { name: 'login'; mode: Role }
+  | { name: 'welcome' }
+  | { name: 'parent' }
   | { name: 'teacher' }
-  | { name: 'teacherRoom'; childId: ChildId };
+  | { name: 'teacherRoom'; studentId: string };

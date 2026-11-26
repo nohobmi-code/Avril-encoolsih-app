@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import { Platform, StatusBar as RNStatusBar, StyleSheet, View } from 'react-native';
 import { StatusBar } from 'expo-status-bar';
 import { useFonts } from 'expo-font';
@@ -22,8 +22,19 @@ import TeacherScreen from './src/screens/Teacher';
 import TeacherRoomScreen from './src/screens/TeacherRoom';
 
 function Router() {
-  const { children } = useStore();
+  const { ready, profile, student, signOut } = useStore();
   const [screen, setScreen] = useState<Screen>({ name: 'entry' });
+
+  // 세션이 끊기면 잠긴 화면에서 스스로 빠져나온다.
+  useEffect(() => {
+    const locked =
+      screen.name === 'parent' || screen.name === 'teacher' || screen.name === 'teacherRoom' || screen.name === 'welcome';
+    if (!locked) return;
+    if (!profile) setScreen({ name: 'entry' });
+    else if (profile.role === 'parent' && screen.name === 'teacher') setScreen({ name: 'entry' });
+  }, [profile, screen]);
+
+  if (!ready) return <View style={{ flex: 1, backgroundColor: C.paper }} />;
 
   switch (screen.name) {
     case 'kids':
@@ -32,27 +43,30 @@ function Router() {
     case 'login':
       return (
         <LoginScreen
+          mode={screen.mode}
           onBack={() => setScreen({ name: 'entry' })}
-          onSuccess={(childId) => setScreen({ name: 'welcome', childId })}
+          onSwitch={() => setScreen({ name: 'login', mode: screen.mode === 'parent' ? 'teacher' : 'parent' })}
+          onSuccess={(p) =>
+            setScreen(p.role === 'teacher' ? { name: 'teacher' } : { name: 'welcome' })
+          }
         />
       );
 
-    case 'welcome': {
-      const child = children[screen.childId];
+    case 'welcome':
       return (
         <WelcomeScreen
-          name={child.name}
-          nameEn={child.nameEn}
-          onDone={() => setScreen({ name: 'parent', childId: screen.childId })}
+          name={student?.name ?? ''}
+          onDone={() => setScreen({ name: 'parent' })}
         />
       );
-    }
 
     case 'parent':
       return (
         <ParentScreen
-          childId={screen.childId}
-          onLogout={() => setScreen({ name: 'entry' })}
+          onLogout={async () => {
+            await signOut();
+            setScreen({ name: 'entry' });
+          }}
         />
       );
 
@@ -60,16 +74,19 @@ function Router() {
       return (
         <TeacherScreen
           onBack={() => setScreen({ name: 'entry' })}
-          onEnterRoom={(childId) => setScreen({ name: 'teacherRoom', childId })}
+          onEnterRoom={(studentId) => setScreen({ name: 'teacherRoom', studentId })}
+          onSignOut={async () => {
+            await signOut();
+            setScreen({ name: 'entry' });
+          }}
         />
       );
 
     case 'teacherRoom':
       return (
         <TeacherRoomScreen
-          childId={screen.childId}
+          studentId={screen.studentId}
           onBack={() => setScreen({ name: 'teacher' })}
-          onPreview={() => setScreen({ name: 'welcome', childId: screen.childId })}
         />
       );
 
@@ -77,8 +94,10 @@ function Router() {
       return (
         <EntryScreen
           onKids={() => setScreen({ name: 'kids' })}
-          onParent={() => setScreen({ name: 'login' })}
-          onTeacher={() => setScreen({ name: 'teacher' })}
+          onParent={() => setScreen(profile?.role === 'parent' ? { name: 'parent' } : { name: 'login', mode: 'parent' })}
+          onTeacher={() =>
+            setScreen(profile?.role === 'teacher' ? { name: 'teacher' } : { name: 'login', mode: 'teacher' })
+          }
         />
       );
   }

@@ -5,8 +5,9 @@ import { Meta, Star } from '../components/ui';
 
 const useNative = Platform.OS !== 'web';
 
-/** 받침에 따라 '아/야'를 고른다 (민혁아 · 율리야). */
+/** 받침에 따라 '아/야'를 고른다. */
 const vocative = (name: string) => {
+  if (!name) return '';
   const code = name.charCodeAt(name.length - 1);
   const hasJong = (code - 0xac00) % 28 !== 0;
   return `${name}${hasJong ? '아' : '야'}`;
@@ -60,11 +61,9 @@ function Twinkle({ x, y, s, d, c }: { x: number; y: number; s: number; d: number
 
 export default function WelcomeScreen({
   name,
-  nameEn,
   onDone,
 }: {
   name: string;
-  nameEn: string;
   onDone: () => void;
 }) {
   const fade = useRef(new Animated.Value(0)).current;
@@ -114,9 +113,7 @@ export default function WelcomeScreen({
       </View>
 
       <Animated.View style={{ alignItems: 'center', opacity: fade, transform: [{ translateY: rise }] }}>
-        <Text style={[eyebrow, { color: C.clay, fontSize: 8.5, letterSpacing: 2.6 }]}>
-          WELCOME · {nameEn.toUpperCase()}'S ROOM
-        </Text>
+        <Text style={[eyebrow, { color: C.clay, fontSize: 8.5, letterSpacing: 2.6 }]}>WELCOME</Text>
         <Text style={s.hello}>안녕, {vocative(name)}!</Text>
         <Animated.View style={[s.line, { transform: [{ scaleX: line }] }]} />
         <Animated.Text style={[s.caption, { opacity: sub }]}>
@@ -125,7 +122,7 @@ export default function WelcomeScreen({
       </Animated.View>
 
       <View style={s.foot} pointerEvents="none">
-        <Meta style={{ color: C.ink40 }}>PRIVATE ROOM · ONLY {nameEn.toUpperCase()}</Meta>
+        <Meta style={{ color: C.ink40 }}>PRIVATE ROOM · {name}</Meta>
       </View>
     </Pressable>
   );
@@ -139,14 +136,6 @@ const s = StyleSheet.create({
     justifyContent: 'center',
     paddingHorizontal: S.pad,
     overflow: 'hidden',
-  },
-  halo: {
-    position: 'absolute',
-    width: 320,
-    height: 320,
-    borderRadius: 160,
-    borderWidth: 1,
-    borderColor: 'rgba(164,87,47,0.55)',
   },
   ringOuter: {
     position: 'absolute',

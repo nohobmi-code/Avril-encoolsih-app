@@ -1,126 +1,110 @@
-import React, { useEffect, useState } from 'react';
-import { Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
+import React, { useCallback, useEffect, useState } from 'react';
+import { Platform, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { VideoView, useVideoPlayer } from 'expo-video';
 import { C, F, S, body, eyebrow } from '../theme';
 import { Colophon, Header, Meta, Rule, Sparkle, Tabs, TextLink } from '../components/ui';
-import { useStore, koreanDate, shortDate } from '../store';
-import { ChildId, Lesson } from '../types';
+import { ApiError, listLessons, videoUrl } from '../lib/api';
+import { koreanDate, meaningOf, shortDate, useStore } from '../store';
+import { Lesson } from '../types';
 
-const toSeconds = (d: string) => {
-  const [m, s] = d.split(':').map(Number);
-  return m * 60 + (s || 0);
-};
-const clock = (sec: number) =>
-  `${Math.floor(sec / 60)}:${`${sec % 60}`.padStart(2, '0')}`;
+/* ── 영상 재생 ─────────────────────────────────────────────
+   웹은 <video>, 앱은 expo-video. 서명 URL은 4시간짜리다. */
 
-function UploadedVideo({ uri }: { uri: string }) {
+const count = (n: number, one: string, many: string) => `${n} ${n === 1 ? one : many}`;
+
+function WebVideo({ uri }: { uri: string }) {
+  return React.createElement('video', {
+    src: uri,
+    controls: true,
+    playsInline: true,
+    preload: 'metadata',
+    style: { width: '100%', height: '100%', objectFit: 'contain', backgroundColor: '#000' },
+  });
+}
+
+function NativeVideo({ uri }: { uri: string }) {
   const player = useVideoPlayer(uri, (p) => {
-    p.muted = true;
+    p.muted = false;
     p.loop = false;
   });
   return <VideoView player={player} style={{ width: '100%', height: '100%' }} contentFit="contain" nativeControls />;
 }
 
-/** 영상이 아직 없을 때의 모의 플레이어 — 인쇄물의 필름 프레임처럼. */
-function MockStage({
-  lesson,
-  playing,
-  elapsed,
-  onToggle,
-}: {
-  lesson: Lesson;
-  playing: boolean;
-  elapsed: number;
-  onToggle: () => void;
-}) {
-  const total = toSeconds(lesson.duration);
-  const pct = Math.min(1, elapsed / total);
-
+/** 아직 영상이 없을 때의 필름 프레임 — 인쇄물의 빈 칸처럼. */
+function EmptyStage({ title, caption }: { title: string; caption: string }) {
   return (
     <View style={st.stage}>
       <View style={st.stageGridH} />
       <View style={st.stageGridV} />
       <View style={st.stageTop}>
         <Meta style={{ color: C.ink40 }}>CLASS RECORD</Meta>
-        <Meta style={{ color: C.ink40 }}>{lesson.duration}</Meta>
+        <Meta style={{ color: C.ink40 }}>NO FILM</Meta>
       </View>
-
-      <Pressable onPress={onToggle} style={st.playWrap} accessibilityLabel="재생">
-        <View style={st.playCircle}>
-          {playing ? (
-            <View style={{ flexDirection: 'row' }}>
-              <View style={st.pauseBar} />
-              <View style={[st.pauseBar, { marginLeft: 3 }]} />
-            </View>
-          ) : (
-            <View style={st.triangle} />
-          )}
+      <View style={{ alignItems: 'center', justifyContent: 'center', flex: 1 }}>
+        <View style={st.filmGate}>
+          <Sparkle size={9} color={C.ink40} />
         </View>
-      </Pressable>
-
+        <Text style={st.emptyTitle}>{title}</Text>
+        <Text style={st.emptyCaption}>{caption}</Text>
+      </View>
       <View style={st.stageBottom}>
-        <Text style={st.stageTitle}>{lesson.title}</Text>
-        <View style={{ flexDirection: 'row', alignItems: 'center', marginTop: 6 }}>
-          <Meta style={{ color: C.ink55 }}>
-            {playing ? '재생 중' : '대기'} · {clock(elapsed)} / {lesson.duration}
-          </Meta>
-        </View>
-        <View style={st.progressTrack}>
-          <View style={[st.progressFill, { width: `${pct * 100}%` }]} />
-        </View>
+        <View style={st.progressTrack} />
       </View>
     </View>
   );
 }
 
-export default function ParentScreen({
-  childId,
-  onLogout,
-}: {
-  childId: ChildId;
-  onLogout: () => void;
-}) {
-  const { children } = useStore();
-  const child = children[childId];
+export default function ParentScreen({ onLogout }: { onLogout: () => void }) {
+  const { student, profile } = useStore();
+  const [lessons, setLessons] = useState<Lesson[]>([]);
+  const [stage, setStage] = useState<'loading' | 'ready' | 'error'>('loading');
   const [tab, setTab] = useState<'video' | 'note'>('video');
-  const [activeId, setActiveId] = useState(child.lessons[0]?.id);
-  const [playing, setPlaying] = useState(false);
-  const [elapsed, setElapsed] = useState(0);
-  const [expanded, setExpanded] = useState<string | null>(child.lessons[0]?.id ?? null);
+  const [activeId, setActiveId] = useState<string | null>(null);
+  const [expanded, setExpanded] = useState<string | null>(null);
+  const [url, setUrl] = useState<string | null>(null);
+  const [urlError, setUrlError] = useState('');
 
-  const active = child.lessons.find((l) => l.id === activeId) ?? child.lessons[0];
+  const name = student?.name ?? '';
+
+  const load = useCallback(async () => {
+    if (!student) return;
+    setStage('loading');
+    try {
+      const rows = await listLessons(student.id);
+      setLessons(rows);
+      setActiveId((prev) => prev ?? rows[0]?.id ?? null);
+      setExpanded((prev) => prev ?? rows[0]?.id ?? null);
+      setStage('ready');
+    } catch {
+      setStage('error');
+    }
+  }, [student]);
 
   useEffect(() => {
-    if (!active) return;
-    setActiveId(active.id);
-    setPlaying(false);
-    setElapsed(0);
-  }, [active?.id]);
+    void load();
+  }, [load]);
 
+  const active = lessons.find((l) => l.id === activeId) ?? lessons[0] ?? null;
+
+  // 서명 URL — 비공개 버킷이라 매번 새로 발급받는다.
   useEffect(() => {
-    if (!playing || !active) return;
-    const total = toSeconds(active.duration);
-    const t = setInterval(() => {
-      setElapsed((e) => {
-        if (e + 1 >= total) {
-          setPlaying(false);
-          return total;
-        }
-        return e + 1;
-      });
-    }, 1000);
-    return () => clearInterval(t);
-  }, [playing, active?.id]);
+    let alive = true;
+    setUrl(null);
+    setUrlError('');
+    if (!active?.video_path) return;
+    videoUrl(active.video_path)
+      .then((u) => alive && setUrl(u))
+      .catch((e) => alive && setUrlError(e instanceof ApiError ? e.message : '영상을 열지 못했습니다.'));
+    return () => {
+      alive = false;
+    };
+  }, [active?.video_path]);
 
-  const pickLesson = (id: string) => {
-    setActiveId(id);
-    setPlaying(false);
-    setElapsed(0);
-  };
+  const hasVideo = Boolean(active?.video_path);
 
   return (
     <View style={{ flex: 1, backgroundColor: C.paper }}>
-      <Header folio={`02 — ${child.nameEn.toUpperCase()}`} onBack={onLogout} />
+      <Header folio={`02 — ${name || 'PARENT'}`} onBack={onLogout} />
 
       <ScrollView
         contentContainerStyle={{ paddingHorizontal: S.pad, paddingTop: 20, paddingBottom: 40 }}
@@ -128,10 +112,15 @@ export default function ParentScreen({
       >
         {/* 아이 신원 */}
         <View style={{ flexDirection: 'row', alignItems: 'flex-end', justifyContent: 'space-between' }}>
-          <View>
-            <Text style={[eyebrow, { color: C.clay }]}>{child.nameEn.toUpperCase()} · {child.age}</Text>
-            <Text style={st.childName}>{child.name}의 방</Text>
-            <Text style={st.tagline}>{child.teacherLine}</Text>
+          <View style={{ flex: 1 }}>
+            <Text style={[eyebrow, { color: C.clay }]}>
+              {student?.age_label ? student.age_label : 'AVRIL ENCOOLISH'}
+              {lessons.length ? ` · ${count(lessons.length, 'RECORD', 'RECORDS')}` : ''}
+            </Text>
+            <Text style={st.childName}>{name}의 방</Text>
+            <Text style={st.tagline}>
+              {active ? `최근 수업 ${koreanDate(active.lesson_date)}` : '선생님이 남긴 기록이 여기에 쌓입니다.'}
+            </Text>
           </View>
           <TextLink label="로그아웃" onPress={onLogout} color={C.ink40} />
         </View>
@@ -141,40 +130,63 @@ export default function ParentScreen({
             value={tab}
             onChange={(k) => setTab(k as 'video' | 'note')}
             items={[
-              { key: 'video', label: '수업 영상', sub: `영상 ${child.lessons.length}` },
-              { key: 'note', label: '수업노트', sub: `노트 ${child.lessons.length}` },
+              { key: 'video', label: '수업 영상', sub: `영상 ${lessons.length}` },
+              { key: 'note', label: '수업노트', sub: `노트 ${lessons.length}` },
             ]}
           />
         </View>
 
-        {tab === 'video' ? (
+        {stage === 'loading' ? (
+          <Text style={st.quiet}>불러오는 중…</Text>
+        ) : stage === 'error' ? (
+          <View>
+            <Text style={st.errorText}>기록을 불러오지 못했습니다.</Text>
+            <View style={{ marginTop: 12 }}>
+              <TextLink label="다시 시도" onPress={() => void load()} color={C.clay} />
+            </View>
+          </View>
+        ) : lessons.length === 0 ? (
           <>
-            {active?.videoUri ? (
+            <EmptyStage
+              title="아직 올라온 기록이 없어요."
+              caption={'선생님이 수업을 마치면\n이 방에 영상과 노트가 도착합니다.'}
+            />
+            <Text style={st.separation}>
+              {name}의 방은 {profile?.username ? '어머님 계정' : '이 계정'}으로만 열립니다. 다른 아이의 기록은 보이지 않습니다.
+            </Text>
+          </>
+        ) : tab === 'video' ? (
+          <>
+            {hasVideo ? (
               <View style={st.videoBox}>
-                <UploadedVideo uri={active.videoUri} />
+                {url ? (
+                  Platform.OS === 'web' ? (
+                    <WebVideo uri={url} />
+                  ) : (
+                    <NativeVideo uri={url} />
+                  )
+                ) : (
+                  <View style={st.videoPending}>
+                    <Text style={st.videoPendingText}>{urlError || '영상을 준비하는 중…'}</Text>
+                  </View>
+                )}
               </View>
-            ) : active ? (
-              <MockStage
-                lesson={active}
-                playing={playing}
-                elapsed={elapsed}
-                onToggle={() => {
-                  if (elapsed >= toSeconds(active.duration)) setElapsed(0);
-                  setPlaying((p) => !p);
-                }}
-              />
-            ) : null}
+            ) : (
+              <EmptyStage title="이 날은 영상이 없습니다." caption={'수업노트만 남아 있어요.\n노트 탭에서 읽어 보세요.'} />
+            )}
 
             {active ? (
               <View style={{ marginTop: 16 }}>
                 <View style={{ flexDirection: 'row', justifyContent: 'space-between' }}>
-                  <Text style={[eyebrow, { color: C.ink40, letterSpacing: 0.4 }]}>{koreanDate(active.date)}</Text>
+                  <Text style={[eyebrow, { color: C.ink40, letterSpacing: 0.4 }]}>{koreanDate(active.lesson_date)}</Text>
                   <Meta style={{ color: C.ink40 }}>UPLOADED BY BOMI</Meta>
                 </View>
                 <Text style={st.lessonTitle}>{active.title}</Text>
-                <Text style={st.lessonSub} numberOfLines={2}>
-                  {active.note.comment}
-                </Text>
+                {active.summary ? (
+                  <Text style={st.lessonSub} numberOfLines={2}>
+                    {active.summary}
+                  </Text>
+                ) : null}
                 <View style={{ marginTop: 14 }}>
                   <TextLink label="이 날의 수업노트 읽기 →" onPress={() => setTab('note')} color={C.clay} />
                 </View>
@@ -184,26 +196,24 @@ export default function ParentScreen({
             <View style={{ marginTop: 30 }}>
               <View style={{ flexDirection: 'row', justifyContent: 'space-between', marginBottom: 8 }}>
                 <Text style={[eyebrow, { fontSize: 8.5, letterSpacing: 2 }]}>PREVIOUS CLASSES</Text>
-                <Meta style={{ color: C.ink40 }}>{child.lessons.length} FILMS</Meta>
+                <Meta style={{ color: C.ink40 }}>{count(lessons.length, 'FILM', 'FILMS')}</Meta>
               </View>
               <Rule />
-              {child.lessons.map((l) => {
-                const on = l.id === activeId;
+              {lessons.map((l) => {
+                const on = l.id === active?.id;
                 return (
                   <View key={l.id}>
                     <Pressable
-                      onPress={() => pickLesson(l.id)}
+                      onPress={() => setActiveId(l.id)}
                       style={({ pressed }) => [st.row, { opacity: pressed ? 0.6 : 1 }]}
                     >
                       <View style={{ width: 46 }}>
-                        <Text style={[st.rowDate, on && { color: C.clay }]}>{shortDate(l.date)}</Text>
-                        <Text style={st.rowDur}>{l.duration}</Text>
+                        <Text style={[st.rowDate, on && { color: C.clay }]}>{shortDate(l.lesson_date)}</Text>
+                        <Text style={st.rowDur}>{l.video_path ? 'FILM' : 'NOTE'}</Text>
                       </View>
                       <View style={{ flex: 1 }}>
-                        <Text style={[st.rowTitle, on && { color: C.clay }]}>{l.note.topic}</Text>
-                        <Text style={st.rowMeta}>
-                          {l.videoUri ? '선생님 업로드 영상' : '수업 기록 영상'}
-                        </Text>
+                        <Text style={[st.rowTitle, on && { color: C.clay }]}>{l.title}</Text>
+                        <Text style={st.rowMeta}>{l.video_path ? '선생님 업로드 영상' : '수업 기록'}</Text>
                       </View>
                       <View style={[st.dot, on && { backgroundColor: C.clay, borderColor: C.clay }]} />
                     </Pressable>
@@ -213,7 +223,7 @@ export default function ParentScreen({
               })}
             </View>
             <Text style={st.separation}>
-              영상은 {child.name}의 방에만 올라옵니다. 다른 아이의 계정에서는 보이지 않습니다.
+              영상은 {name}의 방에만 올라옵니다. 다른 아이의 계정에서는 보이지 않습니다.
             </Text>
           </>
         ) : (
@@ -223,45 +233,52 @@ export default function ParentScreen({
               <Meta style={{ color: C.ink40 }}>BY BOMI</Meta>
             </View>
             <Rule />
-            {child.lessons.map((l, idx) => {
+            {lessons.map((l, idx) => {
               const open = expanded === l.id;
               return (
                 <View key={l.id}>
-                  <Pressable onPress={() => setExpanded(open ? null : l.id)} style={{ paddingTop: 18, paddingBottom: 14 }}>
+                  <Pressable
+                    onPress={() => setExpanded(open ? null : l.id)}
+                    style={{ paddingTop: 18, paddingBottom: 14 }}
+                  >
                     <View style={{ flexDirection: 'row', justifyContent: 'space-between' }}>
                       <Text style={[eyebrow, { color: idx === 0 ? C.clay : C.ink40, letterSpacing: 0.4 }]}>
-                        {koreanDate(l.date)}
+                        {koreanDate(l.lesson_date)}
                       </Text>
                       <Meta style={{ color: C.ink40 }}>{open ? '−' : '+'}</Meta>
                     </View>
-                    <Text style={st.noteTitle}>{l.note.topic}</Text>
+                    <Text style={st.noteTitle}>{l.title}</Text>
                   </Pressable>
 
                   {open ? (
                     <View style={{ paddingBottom: 22 }}>
-                      <Text style={[body, { marginTop: 4 }]}>{l.note.comment}</Text>
+                      {l.summary ? <Text style={[body, { marginTop: 4 }]}>{l.summary}</Text> : null}
 
-                      <View style={{ marginTop: 20 }}>
-                        <Text style={[eyebrow, { fontSize: 8.5, letterSpacing: 2, marginBottom: 8 }]}>
-                          TODAY'S EXPRESSIONS
-                        </Text>
-                        {l.note.expressions.map((e) => (
-                          <View key={e.en} style={st.expRow}>
-                            <Text style={st.expEn}>{e.en}</Text>
-                            <Text style={st.expKo}>{e.ko}</Text>
-                          </View>
-                        ))}
-                      </View>
-
-                      <View style={st.mission}>
-                        <View style={{ flexDirection: 'row', alignItems: 'center', marginBottom: 8 }}>
-                          <Sparkle size={6} color={C.sage} />
-                          <Text style={[eyebrow, { marginLeft: 7, fontSize: 8.5, letterSpacing: 2 }]}>
-                            5 MINUTES AT HOME
+                      {l.words?.length ? (
+                        <View style={{ marginTop: 20 }}>
+                          <Text style={[eyebrow, { fontSize: 8.5, letterSpacing: 2, marginBottom: 8 }]}>
+                            TODAY'S EXPRESSIONS
                           </Text>
+                          {l.words.map((w) => (
+                            <View key={w} style={st.expRow}>
+                              <Text style={st.expEn}>{w}</Text>
+                              <Text style={st.expKo}>{meaningOf(w)}</Text>
+                            </View>
+                          ))}
                         </View>
-                        <Text style={st.missionText}>{l.note.mission}</Text>
-                      </View>
+                      ) : null}
+
+                      {l.homework ? (
+                        <View style={st.mission}>
+                          <View style={{ flexDirection: 'row', alignItems: 'center', marginBottom: 8 }}>
+                            <Sparkle size={6} color={C.sage} />
+                            <Text style={[eyebrow, { marginLeft: 7, fontSize: 8.5, letterSpacing: 2 }]}>
+                              5 MINUTES AT HOME
+                            </Text>
+                          </View>
+                          <Text style={st.missionText}>{l.homework}</Text>
+                        </View>
+                      ) : null}
 
                       <Text style={st.sign}>— 보미</Text>
                     </View>
@@ -276,7 +293,7 @@ export default function ParentScreen({
           </>
         )}
 
-        <Colophon note={`PRIVATE · ${child.nameEn.toUpperCase()}`} />
+        <Colophon note={`PRIVATE · ${name}`} />
       </ScrollView>
     </View>
   );
@@ -323,44 +340,46 @@ const st = StyleSheet.create({
     backgroundColor: 'rgba(28,26,23,0.07)',
   },
   stageTop: { flexDirection: 'row', justifyContent: 'space-between' },
-  playWrap: { position: 'absolute', left: 0, right: 0, top: 0, bottom: 0, alignItems: 'center', justifyContent: 'center' },
-  playCircle: {
-    width: 54,
-    height: 54,
-    borderRadius: 27,
+  stageBottom: {},
+  filmGate: {
+    width: 44,
+    height: 44,
     borderWidth: S.hair,
-    borderColor: C.ink,
+    borderColor: C.ruleStrong,
     alignItems: 'center',
     justifyContent: 'center',
     backgroundColor: 'rgba(250,247,242,0.72)',
   },
-  triangle: {
-    width: 0,
-    height: 0,
-    borderTopWidth: 6,
-    borderBottomWidth: 6,
-    borderLeftWidth: 10,
-    borderTopColor: 'transparent',
-    borderBottomColor: 'transparent',
-    borderLeftColor: C.ink,
-    marginLeft: 3,
+  emptyTitle: {
+    fontFamily: F.krSans,
+    fontSize: 12.5,
+    color: C.ink70,
+    marginTop: 14,
+    textAlign: 'center',
   },
-  pauseBar: { width: 3, height: 12, backgroundColor: C.ink },
-  stageBottom: {},
-  stageTitle: {
-    fontFamily: F.serif,
-    fontSize: 20,
-    letterSpacing: -0.3,
-    color: C.ink,
+  emptyCaption: {
+    fontFamily: F.krSans,
+    fontSize: 10.5,
+    lineHeight: 17,
+    color: C.ink40,
+    marginTop: 6,
+    textAlign: 'center',
   },
   progressTrack: { height: 1, backgroundColor: C.rule, marginTop: 10 },
-  progressFill: { height: 1, backgroundColor: C.clay },
   videoBox: {
     height: 196,
     borderWidth: S.hair,
     borderColor: C.ruleStrong,
     backgroundColor: '#000',
     overflow: 'hidden',
+  },
+  videoPending: { flex: 1, alignItems: 'center', justifyContent: 'center', paddingHorizontal: 20 },
+  videoPendingText: {
+    fontFamily: F.krSans,
+    fontSize: 11.5,
+    lineHeight: 18,
+    color: 'rgba(250,247,242,0.72)',
+    textAlign: 'center',
   },
   lessonTitle: {
     fontFamily: F.krSerif,
@@ -415,4 +434,6 @@ const st = StyleSheet.create({
   },
   missionText: { fontFamily: F.krSans, fontSize: 12, lineHeight: 20, color: C.ink70 },
   sign: { fontFamily: F.serifItalic, fontSize: 15, color: C.ink55, marginTop: 16 },
+  quiet: { fontFamily: F.krSans, fontSize: 12, color: C.ink40, paddingVertical: 30 },
+  errorText: { fontFamily: F.krSans, fontSize: 12.5, color: C.clay, paddingVertical: 20 },
 });

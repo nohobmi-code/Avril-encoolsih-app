@@ -1,38 +1,65 @@
 import React, { useState } from 'react';
-import { Image, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { Image, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { C, F, S, body, eyebrow } from '../theme';
-import { Field, Header, Meta, PrimaryButton, Rule } from '../components/ui';
-import { DEMO_PASSWORD, useStore } from '../store';
-import { ChildId } from '../types';
+import { Field, Header, PrimaryButton, TextLink } from '../components/ui';
+import { ApiError } from '../lib/api';
+import { useStore } from '../store';
+import { Profile, Role } from '../types';
+
+const COPY: Record<Role, { folio: string; eyebrow: string; title: string; lead: string; aside: string; switch: string }> = {
+  parent: {
+    folio: '02 — PARENT',
+    eyebrow: 'PRIVATE ROOM',
+    title: '어머님, 오늘의 방입니다.',
+    lead: '아이마다 계정이 따로 있습니다.\n로그인한 아이의 영상과 노트만 열립니다.',
+    aside: '계정이 다르면 다른 아이의 영상과 수업노트는 열리지 않습니다.\n아이의 기록은 그 아이의 방에만 쌓입니다.',
+    switch: '선생님이신가요? →',
+  },
+  teacher: {
+    folio: '03 — STUDIO',
+    eyebrow: 'TEACHER STUDIO',
+    title: '선생님 로그인.',
+    lead: '선생님 계정으로만 열리는 관리자 화면입니다.\n아이 등록과 영상·수업노트는 여기서만 할 수 있습니다.',
+    aside: '선생님 계정은 앱 관리자만 발급합니다.\n비밀번호를 잊으셨다면 Supabase 프로젝트에서 다시 정할 수 있습니다.',
+    switch: '어머님 로그인이신가요? →',
+  },
+};
 
 export default function LoginScreen({
+  mode,
   onBack,
+  onSwitch,
   onSuccess,
 }: {
+  mode: Role;
   onBack: () => void;
-  onSuccess: (childId: ChildId) => void;
+  onSwitch: () => void;
+  onSuccess: (profile: Profile) => void;
 }) {
-  const { children } = useStore();
+  const { signIn } = useStore();
+  const copy = COPY[mode];
   const [id, setId] = useState('');
   const [pw, setPw] = useState('');
   const [error, setError] = useState('');
+  const [busy, setBusy] = useState(false);
 
-  const submit = () => {
-    const key = id.trim().toLowerCase();
-    const found = (Object.keys(children) as ChildId[]).find(
-      (k) => children[k].account === key,
-    );
-    if (!found || pw.trim() !== DEMO_PASSWORD) {
-      setError('아이디 또는 비밀번호가 맞지 않습니다.');
-      return;
-    }
+  const submit = async () => {
+    if (busy) return;
     setError('');
-    onSuccess(found);
+    setBusy(true);
+    try {
+      const profile = await signIn(id, pw);
+      onSuccess(profile);
+    } catch (e) {
+      setError(e instanceof ApiError ? e.message : '로그인하지 못했습니다. 잠시 뒤 다시 시도해 주세요.');
+    } finally {
+      setBusy(false);
+    }
   };
 
   return (
     <View style={{ flex: 1, backgroundColor: C.paper }}>
-      <Header folio="02 — PARENT" onBack={onBack} />
+      <Header folio={copy.folio} onBack={onBack} />
       <ScrollView
         contentContainerStyle={{ paddingHorizontal: S.pad, paddingTop: 26, paddingBottom: 40 }}
         keyboardShouldPersistTaps="handled"
@@ -43,19 +70,17 @@ export default function LoginScreen({
           style={{ width: 92, height: 82, marginBottom: 14 }}
           resizeMode="contain"
         />
-        <Text style={[eyebrow, { color: C.clay }]}>PRIVATE ROOM</Text>
-        <Text style={s.title}>어머님, 오늘의 방입니다.</Text>
-        <Text style={s.lead}>
-          아이마다 계정이 따로 있습니다.{'\n'}
-          로그인한 아이의 영상과 노트만 열립니다.
-        </Text>
+        <Text style={[eyebrow, { color: C.clay }]}>{copy.eyebrow}</Text>
+        <Text style={s.title}>{copy.title}</Text>
+        <Text style={s.lead}>{copy.lead}</Text>
 
         <View style={{ marginTop: 30 }}>
           <Field
-            label="STUDENT ID"
-            placeholder="yulli"
+            label={mode === 'teacher' ? 'TEACHER ID' : "MOTHER'S ID"}
+            placeholder="아이디"
             autoCapitalize="none"
             autoCorrect={false}
+            autoComplete="username"
             value={id}
             onChangeText={(t) => {
               setId(t);
@@ -64,9 +89,10 @@ export default function LoginScreen({
           />
           <Field
             label="PASSWORD"
-            hint={`DEMO ${DEMO_PASSWORD}`}
-            placeholder="••••"
+            placeholder="비밀번호"
             secureTextEntry
+            autoCapitalize="none"
+            autoComplete="current-password"
             value={pw}
             onChangeText={(t) => {
               setPw(t);
@@ -79,40 +105,15 @@ export default function LoginScreen({
 
         {error ? <Text style={s.error}>{error}</Text> : null}
 
-        <PrimaryButton label="로그인" onPress={submit} />
+        <PrimaryButton label={busy ? '확인 중…' : '로그인'} onPress={submit} disabled={busy} />
 
-        <View style={{ marginTop: 30 }}>
-          <View style={{ flexDirection: 'row', justifyContent: 'space-between', marginBottom: 8 }}>
-            <Text style={[eyebrow, { fontSize: 8.5, letterSpacing: 2 }]}>DEMO ACCOUNTS</Text>
-            <Meta style={{ color: C.ink40 }}>TAP TO ENTER</Meta>
-          </View>
-          <Rule />
-          {(Object.keys(children) as ChildId[]).map((k) => {
-            const c = children[k];
-            return (
-              <View key={k}>
-                <Pressable
-                  onPress={() => onSuccess(k)}
-                  style={({ pressed }) => [s.accountRow, { opacity: pressed ? 0.6 : 1 }]}
-                >
-                  <Text style={s.accountId}>{c.account}</Text>
-                  <Text style={s.accountName}>
-                    {c.name} · {c.age}
-                  </Text>
-                  <Text style={s.accountArrow}>→</Text>
-                </Pressable>
-                <Rule />
-              </View>
-            );
-          })}
+        <View style={{ marginTop: 26 }}>
+          <TextLink label={copy.switch} onPress={onSwitch} color={C.clay} />
         </View>
 
-        <View style={{ flexDirection: 'row', marginTop: 26 }}>
+        <View style={{ flexDirection: 'row', marginTop: 30 }}>
           <View style={{ width: 1, backgroundColor: C.sage, marginRight: 14, opacity: 0.5 }} />
-          <Text style={s.privacy}>
-            계정이 다르면 다른 아이의 영상과 수업노트는 열리지 않습니다.{'\n'}
-            아이의 기록은 그 아이의 방에만 쌓입니다.
-          </Text>
+          <Text style={s.privacy}>{copy.aside}</Text>
         </View>
       </ScrollView>
     </View>
@@ -128,41 +129,14 @@ const s = StyleSheet.create({
     marginTop: 12,
     letterSpacing: -0.3,
   },
-  lead: {
-    ...body,
-    fontSize: 12.5,
-    lineHeight: 21,
-    marginTop: 8,
-  },
+  lead: { ...body, fontSize: 12.5, lineHeight: 21, marginTop: 8 },
   error: {
     fontFamily: F.krSans,
     fontSize: 12,
+    lineHeight: 19,
     color: C.clay,
     marginBottom: 14,
     marginTop: -6,
-  },
-  accountRow: {
-    paddingVertical: 14,
-    flexDirection: 'row',
-    alignItems: 'baseline',
-  },
-  accountId: {
-    fontFamily: F.mono,
-    fontSize: 12,
-    letterSpacing: 0.6,
-    color: C.ink,
-    width: 90,
-  },
-  accountName: {
-    flex: 1,
-    fontFamily: F.krSans,
-    fontSize: 12.5,
-    color: C.ink70,
-  },
-  accountArrow: {
-    fontFamily: F.sans,
-    fontSize: 12,
-    color: C.ink40,
   },
   privacy: {
     flex: 1,
